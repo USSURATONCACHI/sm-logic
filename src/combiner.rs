@@ -1,24 +1,28 @@
 use std::collections::HashMap;
+use crate::connection::Connection;
+use crate::scheme::Scheme;
+use crate::util::Rotation;
 
-type Scheme = ();       // TODO
 type SlotPath = ();     // TODO
 type Placement = ();    // TODO
-type Rot = ();          // TODO
 type Bind = ();         // TODO
 type Warn = ();         // TODO
 
+#[derive(Debug, Clone)]
 struct ConnCase {
 	from: SlotPath,
 	to: SlotPath,
 	connection: Box<dyn Connection>,
 }
 
+#[derive(Debug, Clone)]
 struct SchemeCase {
 	scheme: Scheme,
 	pos: Placement,
-	rot: Rot,
+	rot: Rotation,
 }
 
+#[derive(Debug, Clone)]
 pub struct Combiner {
 	schemes: HashMap<String, SchemeCase>,
 	connections: Vec<ConnCase>,
@@ -61,14 +65,14 @@ impl Combiner {
 
 	pub fn rotate_by<N, R>(&mut self, scheme_name: N, rot: R)
 		where N: Into<String>,
-			  R: Into<Rot>,
+			  R: Into<Rotation>,
 	{
 		todo!()
 	}
 
 	pub fn rotate_at<N, R>(&mut self, scheme_name: N, rot: R)
 		where N: Into<String>,
-			  R: Into<Rot>,
+			  R: Into<Rotation>,
 	{
 		todo!()
 	}
