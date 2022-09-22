@@ -6,3 +6,4 @@ mod combiner;
 mod connection;
 mod scheme;
 mod slot;
+mod shape;

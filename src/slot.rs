@@ -145,7 +145,7 @@ impl Slot {
 
 impl Slot {
 	fn add_connections_map(&mut self, map: Map3D<Vec<usize>>, pos: Point) {
-		let (size_x, size_y, size_z) = map.size();
+		let (size_x, size_y, _) = map.size();
 		for (i, conns) in map.to_vec().into_iter().enumerate() {
 			let map_x = i % size_x;
 			let map_y = (i / size_x) % size_y;
