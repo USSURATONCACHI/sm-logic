@@ -5,3 +5,4 @@ mod util;
 mod combiner;
 mod connection;
 mod scheme;
+mod slot;

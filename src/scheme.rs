@@ -2,8 +2,6 @@ use crate::util::{Bounds, Map3D};
 use crate::util::Point;
 use crate::util::Rotation;
 
-type Shape = ();
-
 #[derive(Debug, Clone)]
 pub struct Slot {
 	name: String,
