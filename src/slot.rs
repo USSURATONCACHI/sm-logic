@@ -94,11 +94,11 @@ impl Slot {
 
 		if path.len() == 0 {
 			// Add right here
+			self.add_connections_map(slot.shape_map().clone(), pos);
 			let mut slot = slot;
 			slot.pos = pos;
 			self.sub_slots.push(slot);
 			return Ok(());
-			// TODO: UPSTREAM ADDING OF SHAPES
 		} else {
 			// Follow the path
 			self.create_path(path.clone(), pos, slot.size.clone())
@@ -108,6 +108,9 @@ impl Slot {
 					subject_size: slot.size(),
 					subject_pos: pos,
 				})?;
+			// Does not exists => create
+			let slot_shape_map = slot.shape_map().clone();
+			self.add_connections_map(slot_shape_map, pos);
 
 			return self.get_mut(path.clone())
 				.unwrap()
@@ -141,6 +144,23 @@ impl Slot {
 }
 
 impl Slot {
+	fn add_connections_map(&mut self, map: Map3D<Vec<usize>>, pos: Point) {
+		let (size_x, size_y, size_z) = map.size();
+		for (i, conns) in map.to_vec().into_iter().enumerate() {
+			let map_x = i % size_x;
+			let map_y = (i / size_x) % size_y;
+			let map_z = i / (size_x * size_y);	// % size_z
+
+			let map_point = Vec3::new_ng(map_x, map_y, map_z);
+			let self_point = map_point + pos.cast();
+
+			self.shape_map
+				.get_mut(self_point.tuple())
+				.unwrap()
+				.extend(conns)
+		}
+	}
+
 	fn check_slot_doesnt_exist(&self, path: &String, slot_name: &String) -> Result<(), SlotError> {
 		let check_path = format!("{}/{}", path, slot_name);
 		if self.get(check_path.clone()).is_some() {

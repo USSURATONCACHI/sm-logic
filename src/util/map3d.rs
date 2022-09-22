@@ -32,7 +32,6 @@ impl<T: Clone> Map3D<T> {
 }
 
 impl<T> Map3D<T> {
-	#[allow(dead_code)]
 	pub fn new<I>(size: (usize, usize, usize), data: I) -> Self
 		where I: IntoIterator<Item = T>
 	{
@@ -49,12 +48,15 @@ impl<T> Map3D<T> {
 		&self.data
 	}
 
+	pub fn to_vec(self) -> Vec<T> {
+		self.data
+	}
+
 	#[allow(dead_code)]		// TODO: remove this
 	pub fn as_raw_mut(&mut self) -> &mut Vec<T> {
 		&mut self.data
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
 	pub fn size(&self) -> (usize, usize, usize) {
 		(self.x_size, self.y_size, self.z_size)
 	}
@@ -69,7 +71,6 @@ impl<T> Map3D<T> {
 		Bounds::from_tuple(self.size_u32())
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
 	pub fn get(&self, pos: (usize, usize, usize)) -> Option<&T> {
 		match self.to_id(pos) {
 			None => None,
@@ -77,7 +78,6 @@ impl<T> Map3D<T> {
 		}
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
 	pub fn get_mut(&mut self, pos: (usize, usize, usize)) -> Option<&mut T> {
 		match self.to_id(pos) {
 			None => None,
