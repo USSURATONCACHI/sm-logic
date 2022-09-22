@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Add, Neg, Try};
+use std::ops::{Add, Neg};
 use std::ops::AddAssign;
 use std::ops::Div;
 use std::ops::DivAssign;
@@ -99,7 +99,10 @@ impl<N> Vec3<N> {
 	}
 
 	pub fn cast<T: TryFrom<N> + Debug>(self) -> Vec3<T> {
-		self.try_cast::<T>().expect("Failed to cast Vec3")
+		match self.try_cast::<T>() {
+			Ok(result) => result,
+			Err(_) => panic!("Failed to cast Vec3 between types ;("),
+		}
 	}
 }
 

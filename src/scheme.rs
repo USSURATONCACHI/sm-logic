@@ -4,12 +4,14 @@ use crate::util::Rotation;
 
 type Shape = ();
 
+#[derive(Debug, Clone)]
 pub struct Slot {
 	name: String,
 	kind: String,
 	shapes: Map3D<usize>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Scheme {
 	shapes: Vec<(Point, Rotation, Shape)>,
 	inputs: Vec<Slot>,
