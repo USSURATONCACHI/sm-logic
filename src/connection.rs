@@ -123,7 +123,6 @@ impl Connection for ConnJoint {
 
 			for prev_vec in prev_vectors {
 				for vec in &vectors {
-					let (x, y, z) = vec.1.clone().tuple();
 					if prev_vec.1 == vec.0 && is_point_in_bounds(vec.1, end_bounds){
 						new_vectors.push((prev_vec.0, vec.1));
 					}
@@ -224,6 +223,7 @@ pub struct ConnDim {
 }
 
 impl ConnDim {
+	#[allow(dead_code)]		// TODO add usage
 	pub fn new(adapt_axes: (bool, bool, bool)) -> Box<ConnDim> {
 		Box::new(
 			ConnDim {
@@ -317,6 +317,7 @@ pub struct ConnFilter {
 }
 
 impl ConnFilter {
+	#[allow(dead_code)]		// TODO add usage
 	pub fn new<F>(connection: Box<dyn Connection>, function: F) -> Box<ConnFilter>
 		where F: Fn(&Point, &Point) -> bool + 'static
 	{
@@ -328,6 +329,7 @@ impl ConnFilter {
 		)
 	}
 
+	#[allow(dead_code)]		// TODO add usage
 	pub fn from_arc(connection: Box<dyn Connection>, function: Arc<dyn Fn(&Point, &Point) -> bool>) -> Box<ConnFilter>
 	{
 		Box::new(
@@ -376,6 +378,7 @@ pub struct ConnMap {
 
 impl ConnMap {
 	/// Argument is: Fn((start point, start bounds), end bounds) -> Option<end point>
+	#[allow(dead_code)]		// TODO add usage
 	pub fn new<F>(function: F) -> Box<ConnMap>
 		where F: Fn((Point, Bounds), Bounds) -> Option<Point> + 'static
 	{
@@ -387,6 +390,7 @@ impl ConnMap {
 	}
 
 	/// Argument is: Fn((start point, start bounds), end bounds) -> Option<end point>
+	#[allow(dead_code)]		// TODO add usage
 	pub fn from_arc(function: Arc<dyn Fn((Point, Bounds), Bounds) -> Option<Point>>) -> Box<ConnMap>
 	{
 		Box::new( ConnMap { function } )
