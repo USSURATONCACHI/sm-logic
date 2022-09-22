@@ -1,4 +1,6 @@
-use crate::util::{Bounds, is_point_in_bounds, split_first_token};
+use crate::util::{Bounds, Vec3};
+use crate::util::is_point_in_bounds;
+use crate::util::split_first_token;
 use crate::util::Map3D;
 use crate::util::Point;
 
@@ -88,14 +90,77 @@ impl Slot {
 
 	pub fn add_sub_slot(&mut self, path: String, pos: Point, slot: Slot) -> Result<(), SlotError> {
 		// Check that there is no already existing slot with such name.
-		let check_path = format!("{}/{}", path, slot.name());
+		self.check_slot_doesnt_exist(&path, slot.name())?;
+
+		if path.len() == 0 {
+			// Add right here
+			let mut slot = slot;
+			slot.pos = pos;
+			self.sub_slots.push(slot);
+			return Ok(());
+			// TODO: UPSTREAM ADDING OF SHAPES
+		} else {
+			// Follow the path
+			self.create_path(path.clone(), pos, slot.size.clone())
+				.map_err(|_| SlotError::SlotIsOutOfBounds {
+					main_slot_name: self.name().to_string(),
+					subject_name: slot.name().to_string(),
+					subject_size: slot.size(),
+					subject_pos: pos,
+				})?;
+
+			return self.get_mut(path.clone())
+				.unwrap()
+				.add_sub_slot(path, pos, slot);
+		}
+	}
+
+	pub fn set_sub_slot(&mut self, path: String, pos: Point, slot: BaseSlotData) -> Result<(), SlotError> {
+		// Check that there is no already existing slot with such name.
+		self.check_slot_doesnt_exist(&path, &slot.name)?;
+
+		if path.len() == 0 {
+			// Add right here
+			self.create_sector_slot(slot.name, pos, slot.size, slot.kind);
+			return Ok(());
+		} else {
+			// Follow the path
+			self.create_path(path.clone(), pos, slot.size.clone())
+				.map_err(|_| SlotError::SlotIsOutOfBounds {
+					main_slot_name: self.name().to_string(),
+					subject_name: slot.name.clone(),
+					subject_size: slot.size.clone(),
+					subject_pos: pos,
+				})?;
+
+			return self.get_mut(path.clone())
+				.unwrap()
+				.set_sub_slot(path, pos, slot);
+		}
+	}
+}
+
+impl Slot {
+	fn check_slot_doesnt_exist(&self, path: &String, slot_name: &String) -> Result<(), SlotError> {
+		let check_path = format!("{}/{}", path, slot_name);
 		if self.get(check_path.clone()).is_some() {
 			return Err(SlotError::NameIsAlreadyTaken {
 				main_slot_name: self.name().to_string(),
 				subject_name: check_path,
 			});
 		}
+		Ok(())
+	}
 
+	/// Creates subslots (sectors) by provided path. If slot does
+	/// already exists - function follows through. If some segment of
+	/// path does not exist - function creates it.
+	///
+	/// Ok(()) means success and Err(()) means error of SlotIsOutOfBounds
+	fn create_path(&mut self, path: String, pos: Point, size: Bounds) -> Result<(), ()> {
+		if !self.is_path_available(path.clone(), pos, size) {
+			return Err(());
+		}
 		// Split path into first token and the other path
 		let (sub_slot_name, tail) = split_first_token(path);
 		let tail = match tail {
@@ -103,50 +168,85 @@ impl Slot {
 			None => "".to_string(),
 		};
 
-		if sub_slot_name.len() == 0 {
-			// Empty path = add slot right here
-			let start = pos;
-			let end = pos + slot.size().cast::<i32>() - 1;
-
-			if !is_point_in_bounds(start, self.size()) ||
-				!is_point_in_bounds(end, self.size())
-			{
-				return Err(SlotError::SlotIsOutOfBounds {
-					main_slot_name: self.name().to_string(),
-					subject_name: slot.name,
-					subject_size: slot.size,
-					subject_pos: pos,
-				})
-			}
-
-			self.sub_slots.push(slot);
-			return Ok(());
-		} else {
-			// Non-empty path = follow the path
+		if sub_slot_name.len() > 0 {
+			// FOLLOW THE PATH
 			for sub_slot in self.sub_slots_mut() {
 				if sub_slot.name.eq(&sub_slot_name) {
 					let sub_slot_pos = sub_slot.pos();
-					return sub_slot.add_sub_slot(tail, pos - sub_slot_pos, slot);
+					return sub_slot.create_path(tail, pos - sub_slot_pos, size);
 				}
 			}
+			// PATH NOT FOUND = CREATE SUBSLOT
+			self.create_sector_slot(sub_slot_name.clone(), pos, size, "none (sector)".to_string());
+			// AND FOLLOW THE PATH
 
-			// If there is nowhere to follow - create new subslot just to fit the one being added.
-			// Then follow the path
-			// CREATE A NEW SLOT HERE
-			let base_data = BaseSlotData {
-				name: sub_slot_name.clone(),
-				kind: "none".to_string(),
-				size: slot.size(),
-			};
-			self.set_sub_slot("".to_string(), pos, base_data)?;
+			// Since new sector slot is created at `pos` position we need to next follow the path
+			// with pos of (0, 0, 0) - because is is relative to the slot.
 			return self.get_mut(sub_slot_name)
 				.unwrap()
-				.add_sub_slot(tail, Point::new(0, 0, 0), slot);
+				.create_path(tail, Point::new(0, 0, 0), size);
+		} else {
+			// Empty path = everything is already created
+			return Ok(());
 		}
 	}
 
-	pub fn set_sub_slot(&mut self, path: String, pos: Point, slot: BaseSlotData) -> Result<(), SlotError> {
-		todo!()
+	fn create_sector_slot(&mut self, name: String, pos: Point, size: Bounds, kind: String) {
+		if self.get(name.clone()).is_some() {
+			panic!("Cannot create sector with already taken name");
+		}
+		let map_size = size.cast().tuple();
+		let mut map: Map3D<Vec<usize>> = Map3D::new(map_size, Vec::new());
+
+		for map_x in 0..map_size.0 {
+			for map_y in 0..map_size.1 {
+				for map_z in 0..map_size.2 {
+					let map_point = Vec3::<usize>::new(map_x, map_y, map_z);
+					let self_point = map_point + pos.cast();
+
+					let map_point = map.get_mut(map_point.tuple()).unwrap();
+
+					*map_point = self.shape_map()
+						.get(self_point.tuple())
+						.unwrap()
+						.clone();
+				}
+			}
+		}
+
+		self.sub_slots.push(Slot {
+			name,
+			kind,
+			size,
+			pos,
+			shape_map: map,
+			sub_slots: vec![],
+		})
+	}
+
+	fn is_path_available(&self, path: String, pos: Point, size: Bounds) -> bool {
+		let (sub_slot_name, tail) = split_first_token(path);
+		let tail = match tail {
+			Some(tail) => tail,
+			None => "".to_string(),
+		};
+
+		if sub_slot_name.len() > 0 {
+			// FOLLOW THE PATH
+			for sub_slot in self.sub_slots() {
+				if sub_slot.name.eq(&sub_slot_name) {
+					let sub_slot_pos = sub_slot.pos();
+					return sub_slot.is_path_available(tail, pos - sub_slot_pos, size);
+				}
+			}
+			// IF NO  => CHECK IF IN BOUNDS vvv
+		}
+		// If path destination is this => CHECK IF IN BOUNDS
+		let start = pos;
+		let end = pos + size.cast::<i32>() - 1;
+
+		is_point_in_bounds(start, self.size()) &&
+			is_point_in_bounds(end, self.size())
 	}
 }
 

@@ -1,13 +1,11 @@
-use crate::util::{Bounds, Map3D};
+#![allow(unused_variables, dead_code)]
+
+use crate::util::Bounds;
 use crate::util::Point;
 use crate::util::Rotation;
 
-#[derive(Debug, Clone)]
-pub struct Slot {
-	name: String,
-	kind: String,
-	shapes: Map3D<usize>,
-}
+type Slot = ();
+type Shape = ();
 
 #[derive(Debug, Clone)]
 pub struct Scheme {

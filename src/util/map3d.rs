@@ -17,6 +17,7 @@ impl<T: Debug> Debug for Map3D<T> {
 }
 
 impl<T: Clone> Map3D<T> {
+	#[allow(dead_code)]
 	pub fn filled(size: (usize, usize, usize), default: T) -> Self {
 		Map3D {
 			x_size: size.0,
@@ -43,27 +44,32 @@ impl<T> Map3D<T> {
 		}
 	}
 
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn as_raw(&self) -> &Vec<T> {
 		&self.data
 	}
 
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn as_raw_mut(&mut self) -> &mut Vec<T> {
 		&mut self.data
 	}
 
-	#[allow(dead_code)]
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn size(&self) -> (usize, usize, usize) {
 		(self.x_size, self.y_size, self.z_size)
 	}
 
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn size_u32(&self) -> (u32, u32, u32) {
 		(self.x_size as u32, self.y_size as u32, self.z_size as u32)
 	}
 
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn bounds(&self) -> Bounds {
 		Bounds::from_tuple(self.size_u32())
 	}
 
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn get(&self, pos: (usize, usize, usize)) -> Option<&T> {
 		match self.to_id(pos) {
 			None => None,
@@ -71,6 +77,7 @@ impl<T> Map3D<T> {
 		}
 	}
 
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn get_mut(&mut self, pos: (usize, usize, usize)) -> Option<&mut T> {
 		match self.to_id(pos) {
 			None => None,
@@ -78,7 +85,7 @@ impl<T> Map3D<T> {
 		}
 	}
 
-	#[allow(dead_code)]
+	#[allow(dead_code)]		// TODO: remove this
 	pub fn replace(&mut self, pos: (usize, usize, usize), item: T) -> Option<T> {
 		match self.to_id(pos) {
 			None => None,

@@ -27,7 +27,19 @@ pub fn split_first_token(path: String) -> (String, Option<String>) {
 		None => (path, None),
 		Some(pos) => {
 			let (_, tail) = path.split_at(pos + 1);
-			(path, Some(tail.to_string()))
+			let tail = tail.to_string();
+			(path, Some(tail))
+		}
+	}
+}
+
+pub fn split_last_token(path: String) -> (Option<String>, String) {
+	match path.rfind("/") {
+		None => (None, path),
+		Some(pos) => {
+			let (start, _) = path.split_at(pos);
+			let start = start.to_string();
+			(Some(start), path)
 		}
 	}
 }
