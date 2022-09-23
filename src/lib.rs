@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests;
 
-mod util;
-mod combiner;
-mod connection;
-mod scheme;
-mod slot;
-mod shape;
+pub mod util;
+pub mod combiner;
+pub mod connection;
+pub mod scheme;
+pub mod slot;
+pub mod shape;

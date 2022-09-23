@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use crate::connection::Connection;
 use crate::scheme::Scheme;
-use crate::util::Rotation;
 
 type SlotPath = ();     // TODO
 type Placement = ();    // TODO
 type Bind = ();         // TODO
 type Warn = ();         // TODO
+type Rotation = ();		// TODO
 
 #[derive(Debug, Clone)]
 struct ConnCase {

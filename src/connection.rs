@@ -4,7 +4,8 @@ use std::ops::Range;
 use std::sync::Arc;
 use dyn_clone::DynClone;
 
-use crate::util::{Bounds, is_point_in_bounds};
+use crate::util::Bounds;
+use crate::util::is_point_in_bounds;
 use crate::util::Point;
 
 /// `Connection` is an object that describes connection between two slots.
@@ -22,8 +23,11 @@ dyn_clone::clone_trait_object!(Connection);
 /// between two slots. If slots' sizes differs it chooses smallest ones.
 /// # Example
 /// ```
+/// # use sm_logic::connection::Connection;
+/// # use sm_logic::connection::ConnStraight;
+/// # use sm_logic::util::Bounds;
 /// let connection = ConnStraight::new();
-///	let slot_size = Bounds::new(5, 5, 5);
+///    let slot_size = Bounds::new_ng(5, 5, 5);
 /// let vectors = connection.connect(slot_size, slot_size);
 /// ```
 #[derive(Debug, Clone)]
@@ -66,6 +70,12 @@ impl Connection for ConnStraight {
 /// `Connection`.
 /// # Example
 /// ```
+/// # use sm_logic::connection::Connection;
+/// # use sm_logic::connection::ConnStraight;
+/// # use sm_logic::connection::ConnMap;
+/// # use sm_logic::connection::ConnDim;
+/// # use sm_logic::connection::ConnJoint;
+/// # use sm_logic::util::Bounds;
 /// let conn_1 = ConnStraight::new();	// you can put any connections
 /// let conn_2 = ConnMap::new(|(point, _), _| Some(point * 2));
 /// let slot_between_2_3 = Bounds::new_ng(5, 10, 15);
@@ -75,7 +85,7 @@ impl Connection for ConnStraight {
 /// // applied one after another
 /// let united = ConnJoint::new(conn_1)
 /// 	.chain(None, conn_2)
-/// 	.chain(slot_between_2_3, conn_3);
+/// 	.chain(Some(slot_between_2_3), conn_3);
 /// ```
 #[derive(Debug, Clone)]
 pub struct ConnJoint {
@@ -206,6 +216,9 @@ fn compare_two_vec_pairs(a: &(Point, Point), b: &(Point, Point)) -> Ordering {
 /// That will connect each of 15 points of 3D `Slot` to the only
 /// corresponding point on 2D `Slot`.
 /// ```
+/// # use sm_logic::connection::Connection;
+/// # use sm_logic::connection::ConnDim;
+/// # use sm_logic::util::Bounds;
 /// let start = Bounds::new_ng(15, 15, 30);
 /// let end = Bounds::new_ng(15, 1, 30);
 /// let conn = ConnDim::new((false, true, false));
@@ -223,7 +236,6 @@ pub struct ConnDim {
 }
 
 impl ConnDim {
-	#[allow(dead_code)]		// TODO add usage
 	pub fn new(adapt_axes: (bool, bool, bool)) -> Box<ConnDim> {
 		Box::new(
 			ConnDim {
@@ -304,6 +316,10 @@ impl Connection for ConnDim {
 ///
 /// # Example
 /// ```
+/// # use sm_logic::connection::Connection;
+/// # use sm_logic::connection::ConnStraight;
+/// # use sm_logic::connection::ConnFilter;
+/// # use sm_logic::util::Bounds;
 /// let old_conn = ConnStraight::new();
 /// // Filters all connections that starts at odd x coordinate
 /// let conn = ConnFilter::new(old_conn,
@@ -317,7 +333,6 @@ pub struct ConnFilter {
 }
 
 impl ConnFilter {
-	#[allow(dead_code)]		// TODO add usage
 	pub fn new<F>(connection: Box<dyn Connection>, function: F) -> Box<ConnFilter>
 		where F: Fn(&Point, &Point) -> bool + 'static
 	{
@@ -329,7 +344,6 @@ impl ConnFilter {
 		)
 	}
 
-	#[allow(dead_code)]		// TODO add usage
 	pub fn from_arc(connection: Box<dyn Connection>, function: Arc<dyn Fn(&Point, &Point) -> bool>) -> Box<ConnFilter>
 	{
 		Box::new(
@@ -367,6 +381,8 @@ impl Debug for ConnFilter {
 ///
 /// # Example
 /// ```
+/// # use sm_logic::connection::ConnMap;
+/// # use sm_logic::util::Point;
 /// // Here each point of the start of connection will be connected
 /// // to point with doubled coordinates
 /// let conn = ConnMap::new(|(point, _), _| Some(point * 2));
@@ -378,7 +394,6 @@ pub struct ConnMap {
 
 impl ConnMap {
 	/// Argument is: Fn((start point, start bounds), end bounds) -> Option<end point>
-	#[allow(dead_code)]		// TODO add usage
 	pub fn new<F>(function: F) -> Box<ConnMap>
 		where F: Fn((Point, Bounds), Bounds) -> Option<Point> + 'static
 	{
@@ -390,7 +405,6 @@ impl ConnMap {
 	}
 
 	/// Argument is: Fn((start point, start bounds), end bounds) -> Option<end point>
-	#[allow(dead_code)]		// TODO add usage
 	pub fn from_arc(function: Arc<dyn Fn((Point, Bounds), Bounds) -> Option<Point>>) -> Box<ConnMap>
 	{
 		Box::new( ConnMap { function } )

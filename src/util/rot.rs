@@ -1,7 +1,7 @@
 use std::ops::Neg;
 use crate::util::Vec3;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rot {
 	rot_x: i32,
 	rot_y: i32,
@@ -11,18 +11,14 @@ pub struct Rot {
 impl Rot {
 	pub fn new(rot_x: i32, rot_y: i32, rot_z: i32) -> Self {
 		Rot {
-			rot_x,
-			rot_y,
-			rot_z
+			rot_x: ((rot_x % 4) + 4) % 4 ,
+			rot_y: ((rot_y % 4) + 4) % 4,
+			rot_z: ((rot_z % 4) + 4) % 4
 		}
 	}
 
 	pub fn from_tuple(rot: (i32, i32, i32)) -> Self {
-		Rot {
-			rot_x: rot.0,
-			rot_y: rot.1,
-			rot_z: rot.2,
-		}
+		Rot::new(rot.0, rot.1, rot.2)
 	}
 
 	pub fn from_vec(vec: Vec3<i32>) -> Self {
@@ -54,7 +50,7 @@ impl Rot {
 		)
 	}
 
-	fn to_basis(&self) -> (Vec3<Vec3<i32>>) {
+	fn to_basis(&self) -> Vec3<Vec3<i32>> {
 		let x = Vec3::new_ng(1_i32, 0, 0);
 		let y = Vec3::new_ng(0, 1_i32, 0);
 		let z = Vec3::new_ng(0, 0, 1_i32);
@@ -73,72 +69,42 @@ impl Rot {
 			Vec3::new_ng(0, 1_i32, 0),
 			Vec3::new_ng(0, 0, 1_i32)
 		);
-		let mut ignore_xy = (false, false);
 
-		let axis = get_perpendicular_axis(main_basis.z(), &basis, ignore_xy);
-		let ang_z = match axis {
-			Some(Axis::X) | None => {
-				ignore_xy = (true, false);
-				get_ang_betw_axes(
-					main_basis.x().clone(),
-					basis.x().clone()
-				)
-			}
-			Some(Axis::Y) => {
-				ignore_xy = (false, true);
-				get_ang_betw_axes(
-					main_basis.y().clone(),
-					basis.y().clone()
-				)
-			}
-			Some(Axis::Z) => panic!("Something went very wrong - axis is perpendicular to itself (Z)")
-		};
+		fn get_angle(axis_to_check: Axis, main_basis: &Vec3<Vec3<i32>>, deviant_basis: &Vec3<Vec3<i32>>) -> i32 {
+			let main_axis = match axis_to_check {
+				Axis::X => main_basis.x(),
+				Axis::Y => main_basis.y(),
+				Axis::Z => main_basis.z(),
+			};
 
+			let axis = get_perpendicular_axis(main_axis, deviant_basis);
+
+			if axis == axis_to_check {
+				panic!("Something went wrong - axis is perpendicular to itself");
+			}
+
+			match axis {
+				Axis::X => get_ang_betw_axes(main_basis.x().clone(), deviant_basis.x().clone()),
+				Axis::Y => get_ang_betw_axes(main_basis.y().clone(), deviant_basis.y().clone()),
+				Axis::Z => get_ang_betw_axes(main_basis.z().clone(), deviant_basis.z().clone()),
+			}
+		}
+
+		let ang_z = get_angle(Axis::Z, &main_basis, &basis);
 		let basis = Rot::new(0, 0, -ang_z)
 			.apply_to_basis(basis);
 
-		let axis = get_perpendicular_axis(main_basis.y(), &basis, ignore_xy);
-		let ang_y = match axis {
-			Some(Axis::X) => {
-				get_ang_betw_axes(
-					main_basis.x().clone(),
-					basis.x().clone()
-				)
-			}
-			Some(Axis::Z) => {
-				get_ang_betw_axes(
-					main_basis.z().clone(),
-					basis.z().clone()
-				)
-			}
-			None => 0_i32,
-			Some(Axis::Y) => panic!("Something went very wrong - axis is perpendicular to itself (Y)")
-		};
+		let ang_y = get_angle(Axis::Y, &main_basis, &basis);
 		let basis = Rot::new(0, -ang_y, 0)
 			.apply_to_basis(basis);
 
-		let axis = get_perpendicular_axis(main_basis.x(), &basis, (true, true));
-		let ang_z = match axis {
-			Some(Axis::Y) => {
-				get_ang_betw_axes(
-					main_basis.y().clone(),
-					basis.y().clone()
-				)
-			}
-			Some(Axis::Z) => {
-				get_ang_betw_axes(
-					main_basis.z().clone(),
-					basis.z().clone()
-				)
-			}
-			None => 0_i32,
-			Some(Axis::X) => panic!("Something went very wrong - axis is perpendicular to itself (X)")
-		};
+		let ang_x = get_angle(Axis::X, &main_basis, &basis);
 
 		Rot::new(ang_x, ang_y, ang_z)
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Axis {
 	X, Y, Z
 }
@@ -161,6 +127,13 @@ fn vec3_i32_len(vec: &Vec3<i32>) -> f32 {
 
 // Only use if one of axes are grid-aligned
 fn get_ang_betw_axes(main_axis: Vec3<i32>, deviant_axis: Vec3<i32>) -> i32 {
+	if main_axis == deviant_axis {
+		return 0;
+	}
+	if main_axis == -deviant_axis {
+		return 2;
+	}
+
 	let axis_a = main_axis;
 	let axis_b = deviant_axis;
 	let ang_cos = (axis_a.dot(axis_b) as f32) / (vec3_i32_len(&axis_a) * vec3_i32_len(&axis_b));
@@ -176,7 +149,7 @@ fn get_ang_betw_axes(main_axis: Vec3<i32>, deviant_axis: Vec3<i32>) -> i32 {
 	} else if normal.z().abs() > 0 {
 		Rot::new(ang, 0, 0)
 	} else {
-		panic!("Unintended use of private function - one of axes are not grid-aligned");
+		panic!("Unintended use of private function - one of axes are not grid-aligned ({:?} | {:?} = {:?})", axis_a, axis_b, normal);
 	};
 
 	if rot.apply(axis_b) == axis_a {
@@ -186,25 +159,17 @@ fn get_ang_betw_axes(main_axis: Vec3<i32>, deviant_axis: Vec3<i32>) -> i32 {
 	}
 }
 
-fn get_perpendicular_axis(perp_to: &Vec3<i32>, axes: &Vec3<Vec3<i32>>, ignore_xy: (bool, bool)) -> Option<Axis> {
+fn get_perpendicular_axis(perp_to: &Vec3<i32>, axes: &Vec3<Vec3<i32>>) -> Axis {
 	let (ax, ay, az) = axes.tuple_ref();
 
-	if ax.dot(perp_to.clone()) == 0 && *perp_to.x() == 0 && !ignore_xy.0 {
-		Some(Axis::X)
-	} else if ay.dot(perp_to.clone()) == 0 && *perp_to.y() == 0 && !ignore_xy.1 {
-		Some(Axis::Y)
+	if ax.dot(perp_to.clone()) == 0 && *perp_to.x() == 0 {
+		Axis::X
+	} else if ay.dot(perp_to.clone()) == 0 && *perp_to.y() == 0 {
+		Axis::Y
 	} else if az.dot(perp_to.clone()) == 0 && *perp_to.z() == 0 {
-		Some(Axis::Z)
+		Axis::Z
 	} else {
-		None
-	}
-}
-
-impl PartialEq for Rot {
-	fn eq(&self, other: &Self) -> bool {
-		self.rot_x == other.rot_x &&
-			self.rot_y == other.rot_y &&
-			self.rot_z == other.rot_z
+		panic!("Unintended use of private function - incorrect basis")
 	}
 }
 
@@ -247,5 +212,18 @@ fn apply_rot_z<N>(vec: Vec3<N>, amount: i32) -> Vec3<N>
 		2 => Vec3::new_ng(-x, -y, z),
 		3 => Vec3::new_ng(y, -x, z),
 		_ => panic!("Mod operation somehow failed :/ (internal error)"),
+	}
+}
+
+#[test]
+fn test_rot() {
+	for rx in -5..5 {
+		for ry in -5..5 {
+			for rz in -5..5 {
+				let rot = Rot::new(rx, ry, rz);
+				let basis = rot.to_basis();
+				assert_eq!(rot, Rot::from_basis(basis));
+			}
+		}
 	}
 }

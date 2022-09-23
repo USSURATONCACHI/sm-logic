@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use dyn_clone::DynClone;
-use json::{JsonValue, object};
+use json::JsonValue;
 use crate::util::{Bounds, GateMode, TICKS_PER_SECOND};
 
 pub trait ShapeBase: DynClone + Debug {

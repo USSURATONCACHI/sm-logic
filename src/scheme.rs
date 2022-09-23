@@ -2,10 +2,10 @@
 
 use crate::util::Bounds;
 use crate::util::Point;
-use crate::util::Rotation;
 
 type Slot = ();
 type Shape = ();
+type Rotation = ();
 
 #[derive(Debug, Clone)]
 pub struct Scheme {
