@@ -1,5 +1,6 @@
 use std::ops::Neg;
-use crate::util::Vec3;
+use crate::util::mat::Mat4;
+use crate::util::{Point, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rot {
@@ -40,137 +41,53 @@ impl Rot {
 		)
 	}
 
-	fn apply_to_basis(&self, basis: Vec3<Vec3<i32>>) -> Vec3<Vec3<i32>> {
-		let (ax, ay, az) = basis.tuple();
-
-		Vec3::new_ng(
-			self.apply(ax),
-			self.apply(ay),
-			self.apply(az)
-		)
-	}
-
-	fn to_basis(&self) -> Vec3<Vec3<i32>> {
-		let x = Vec3::new_ng(1_i32, 0, 0);
-		let y = Vec3::new_ng(0, 1_i32, 0);
-		let z = Vec3::new_ng(0, 0, 1_i32);
-
-		let res = Vec3::new_ng(
-			self.apply(x),
-			self.apply(y),
-			self.apply(z)
-		);
-		res
-	}
-
-	fn from_basis(basis: Vec3<Vec3<i32>>) -> Rot {
-		let main_basis = Vec3::new_ng(
-			Vec3::new_ng(1_i32, 0, 0),
-			Vec3::new_ng(0, 1_i32, 0),
-			Vec3::new_ng(0, 0, 1_i32)
-		);
-
-		fn get_angle(axis_to_check: Axis, main_basis: &Vec3<Vec3<i32>>, deviant_basis: &Vec3<Vec3<i32>>) -> i32 {
-			let main_axis = match axis_to_check {
-				Axis::X => main_basis.x(),
-				Axis::Y => main_basis.y(),
-				Axis::Z => main_basis.z(),
-			};
-
-			let axis = get_perpendicular_axis(main_axis, deviant_basis);
-
-			if axis == axis_to_check {
-				panic!("Something went wrong - axis is perpendicular to itself");
-			}
-
-			match axis {
-				Axis::X => get_ang_betw_axes(main_basis.x().clone(), deviant_basis.x().clone()),
-				Axis::Y => get_ang_betw_axes(main_basis.y().clone(), deviant_basis.y().clone()),
-				Axis::Z => get_ang_betw_axes(main_basis.z().clone(), deviant_basis.z().clone()),
-			}
-		}
-
-		let ang_z = get_angle(Axis::Z, &main_basis, &basis);
-		let basis = Rot::new(0, 0, -ang_z)
-			.apply_to_basis(basis);
-
-		let ang_y = get_angle(Axis::Y, &main_basis, &basis);
-		let basis = Rot::new(0, -ang_y, 0)
-			.apply_to_basis(basis);
-
-		let ang_x = get_angle(Axis::X, &main_basis, &basis);
-
-		Rot::new(ang_x, ang_y, ang_z)
+	pub fn apply_to_rot<R: AsRef<Rot>>(&self, first: R) -> Rot {
+		combine_rots(self, first.as_ref())
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Axis {
-	X, Y, Z
-}
-
-fn cross_product(vec_a: Vec3<i32>, vec_b: Vec3<i32>) -> Vec3<i32> {
-	let (ax, ay, az) = vec_a.tuple();
-	let (bx, by, bz) = vec_b.tuple();
-
-	Vec3::new_ng(
-		ay * bz - az * by,
-		ax * bz - az * bx,
-		ax * by - ay * bx,
-	)
-}
-
-fn vec3_i32_len(vec: &Vec3<i32>) -> f32 {
-	let pow = vec.x().pow(2) + vec.y().pow(2) + vec.z().pow(2);
-	(pow as f32).sqrt()
-}
-
-// Only use if one of axes are grid-aligned
-fn get_ang_betw_axes(main_axis: Vec3<i32>, deviant_axis: Vec3<i32>) -> i32 {
-	if main_axis == deviant_axis {
-		return 0;
+impl AsRef<Rot> for Rot {
+	fn as_ref(&self) -> &Rot {
+		self
 	}
-	if main_axis == -deviant_axis {
-		return 2;
-	}
+}
 
-	let axis_a = main_axis;
-	let axis_b = deviant_axis;
-	let ang_cos = (axis_a.dot(axis_b) as f32) / (vec3_i32_len(&axis_a) * vec3_i32_len(&axis_b));
-	let ang = ang_cos.acos().to_degrees() / 90.0;
-	let ang = ang.round() as i32;
+pub fn combine_rots(first: &Rot, second: &Rot) -> Rot {
+	let pi = std::f32::consts::PI;
 
-	let normal = cross_product(axis_a, axis_b);
+	let basis_x = Point::new_ng(1, 0, 0);
+	let basis_y = Point::new_ng(0, 1, 0);
+	let basis_z = Point::new_ng(0, 0, 1);
 
-	let rot = if normal.x().abs() > 0 {
-		Rot::new(ang, 0, 0)
-	} else if normal.y().abs() > 0 {
-		Rot::new(ang, 0, 0)
-	} else if normal.z().abs() > 0 {
-		Rot::new(ang, 0, 0)
+	let basis_x = second.apply(first.apply(basis_x)).tuple();
+	let basis_y = second.apply(first.apply(basis_y)).tuple();
+	let basis_z = second.apply(first.apply(basis_z)).tuple();
+
+	let c = Mat4::from([
+		basis_x.0 as f32, basis_x.1 as f32, basis_x.2 as f32, 0.0,
+		basis_y.0 as f32, basis_y.1 as f32, basis_y.2 as f32, 0.0,
+		basis_z.0 as f32, basis_z.1 as f32, basis_z.2 as f32, 0.0,
+		0.0, 0.0, 0.0, 1.0
+	]);
+	//Transform back to angles
+	let ay = - c.get(2, 0).asin();
+	let ax = if ay.cos() < 0.0 {
+		(-c.get(2, 1)).atan2(-c.get(2, 2))
 	} else {
-		panic!("Unintended use of private function - one of axes are not grid-aligned ({:?} | {:?} = {:?})", axis_a, axis_b, normal);
+		(c.get(2, 1)).atan2(c.get(2, 2))
+	};
+	let az = if ay.cos() < 0.0 {
+		(-c.get(1, 0)).atan2(-c.get(0, 0))
+	} else {
+		(c.get(1, 0)).atan2(c.get(0, 0))
 	};
 
-	if rot.apply(axis_b) == axis_a {
-		-ang
-	} else {
-		ang
-	}
-}
+	let ax = (ax.to_degrees() / 90.0).round() as i32;
+	let ay = (ay.to_degrees() / 90.0).round() as i32;
+	let az = (az.to_degrees() / 90.0).round() as i32;
 
-fn get_perpendicular_axis(perp_to: &Vec3<i32>, axes: &Vec3<Vec3<i32>>) -> Axis {
-	let (ax, ay, az) = axes.tuple_ref();
-
-	if ax.dot(perp_to.clone()) == 0 && *perp_to.x() == 0 {
-		Axis::X
-	} else if ay.dot(perp_to.clone()) == 0 && *perp_to.y() == 0 {
-		Axis::Y
-	} else if az.dot(perp_to.clone()) == 0 && *perp_to.z() == 0 {
-		Axis::Z
-	} else {
-		panic!("Unintended use of private function - incorrect basis")
-	}
+	let res = Rot::new(ax, ay, az);
+	res
 }
 
 fn apply_rot_x<N>(vec: Vec3<N>, amount: i32) -> Vec3<N>
@@ -217,13 +134,24 @@ fn apply_rot_z<N>(vec: Vec3<N>, amount: i32) -> Vec3<N>
 
 #[test]
 fn test_rot() {
+	let mut rots: Vec<Rot> = vec![];
+
 	for rx in -5..5 {
 		for ry in -5..5 {
 			for rz in -5..5 {
-				let rot = Rot::new(rx, ry, rz);
-				let basis = rot.to_basis();
-				assert_eq!(rot, Rot::from_basis(basis));
+				rots.push(Rot::new(rx, ry, rz));
 			}
+		}
+	}
+
+	for rot_1 in rots.iter() {
+		for rot_2 in rots.iter() {
+			let vector = Point::new(1, 1, 1);
+			println!("Testing {:?} + {:?} = {:?}", rot_1, rot_2, rot_2.apply_to_rot(rot_1));
+			assert_eq!(
+				rot_2.apply(rot_1.apply(vector)),
+				rot_2.apply_to_rot(rot_1).apply(vector)
+			);
 		}
 	}
 }

@@ -1,6 +1,8 @@
 mod vec3;
 mod map3d;
 mod rot;
+mod mat;
+
 pub use vec3::Vec3;
 pub use map3d::Map3D;
 pub use rot::Rot;
