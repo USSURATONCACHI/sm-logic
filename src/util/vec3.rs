@@ -32,7 +32,6 @@ impl<N: Mul<N, Output = N> + Add<N, Output = N>> Vec3<N> {
 	pub fn dot(self, other: Self) -> N {
 		(self.x * other.x) + (self.y * other.y) + (self.z * other.z)
 	}
-
 }
 
 impl<N> Vec3<N> {

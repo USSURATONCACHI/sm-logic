@@ -1,0 +1,251 @@
+use std::ops::Neg;
+use crate::util::Vec3;
+
+#[derive(Debug, Clone, Copy)]
+pub struct Rot {
+	rot_x: i32,
+	rot_y: i32,
+	rot_z: i32,
+}
+
+impl Rot {
+	pub fn new(rot_x: i32, rot_y: i32, rot_z: i32) -> Self {
+		Rot {
+			rot_x,
+			rot_y,
+			rot_z
+		}
+	}
+
+	pub fn from_tuple(rot: (i32, i32, i32)) -> Self {
+		Rot {
+			rot_x: rot.0,
+			rot_y: rot.1,
+			rot_z: rot.2,
+		}
+	}
+
+	pub fn from_vec(vec: Vec3<i32>) -> Self {
+		Self::from_tuple(vec.tuple())
+	}
+
+	pub fn apply<N>(&self, vec: Vec3<N>) -> Vec3<N>
+		where N: Neg<Output = N>
+	{
+		apply_rot_z(
+			apply_rot_y(
+				apply_rot_x(
+					vec,
+					self.rot_x
+				),
+				self.rot_y
+			),
+			self.rot_z
+		)
+	}
+
+	fn apply_to_basis(&self, basis: Vec3<Vec3<i32>>) -> Vec3<Vec3<i32>> {
+		let (ax, ay, az) = basis.tuple();
+
+		Vec3::new_ng(
+			self.apply(ax),
+			self.apply(ay),
+			self.apply(az)
+		)
+	}
+
+	fn to_basis(&self) -> (Vec3<Vec3<i32>>) {
+		let x = Vec3::new_ng(1_i32, 0, 0);
+		let y = Vec3::new_ng(0, 1_i32, 0);
+		let z = Vec3::new_ng(0, 0, 1_i32);
+
+		let res = Vec3::new_ng(
+			self.apply(x),
+			self.apply(y),
+			self.apply(z)
+		);
+		res
+	}
+
+	fn from_basis(basis: Vec3<Vec3<i32>>) -> Rot {
+		let main_basis = Vec3::new_ng(
+			Vec3::new_ng(1_i32, 0, 0),
+			Vec3::new_ng(0, 1_i32, 0),
+			Vec3::new_ng(0, 0, 1_i32)
+		);
+		let mut ignore_xy = (false, false);
+
+		let axis = get_perpendicular_axis(main_basis.z(), &basis, ignore_xy);
+		let ang_z = match axis {
+			Some(Axis::X) | None => {
+				ignore_xy = (true, false);
+				get_ang_betw_axes(
+					main_basis.x().clone(),
+					basis.x().clone()
+				)
+			}
+			Some(Axis::Y) => {
+				ignore_xy = (false, true);
+				get_ang_betw_axes(
+					main_basis.y().clone(),
+					basis.y().clone()
+				)
+			}
+			Some(Axis::Z) => panic!("Something went very wrong - axis is perpendicular to itself (Z)")
+		};
+
+		let basis = Rot::new(0, 0, -ang_z)
+			.apply_to_basis(basis);
+
+		let axis = get_perpendicular_axis(main_basis.y(), &basis, ignore_xy);
+		let ang_y = match axis {
+			Some(Axis::X) => {
+				get_ang_betw_axes(
+					main_basis.x().clone(),
+					basis.x().clone()
+				)
+			}
+			Some(Axis::Z) => {
+				get_ang_betw_axes(
+					main_basis.z().clone(),
+					basis.z().clone()
+				)
+			}
+			None => 0_i32,
+			Some(Axis::Y) => panic!("Something went very wrong - axis is perpendicular to itself (Y)")
+		};
+		let basis = Rot::new(0, -ang_y, 0)
+			.apply_to_basis(basis);
+
+		let axis = get_perpendicular_axis(main_basis.x(), &basis, (true, true));
+		let ang_z = match axis {
+			Some(Axis::Y) => {
+				get_ang_betw_axes(
+					main_basis.y().clone(),
+					basis.y().clone()
+				)
+			}
+			Some(Axis::Z) => {
+				get_ang_betw_axes(
+					main_basis.z().clone(),
+					basis.z().clone()
+				)
+			}
+			None => 0_i32,
+			Some(Axis::X) => panic!("Something went very wrong - axis is perpendicular to itself (X)")
+		};
+
+		Rot::new(ang_x, ang_y, ang_z)
+	}
+}
+
+enum Axis {
+	X, Y, Z
+}
+
+fn cross_product(vec_a: Vec3<i32>, vec_b: Vec3<i32>) -> Vec3<i32> {
+	let (ax, ay, az) = vec_a.tuple();
+	let (bx, by, bz) = vec_b.tuple();
+
+	Vec3::new_ng(
+		ay * bz - az * by,
+		ax * bz - az * bx,
+		ax * by - ay * bx,
+	)
+}
+
+fn vec3_i32_len(vec: &Vec3<i32>) -> f32 {
+	let pow = vec.x().pow(2) + vec.y().pow(2) + vec.z().pow(2);
+	(pow as f32).sqrt()
+}
+
+// Only use if one of axes are grid-aligned
+fn get_ang_betw_axes(main_axis: Vec3<i32>, deviant_axis: Vec3<i32>) -> i32 {
+	let axis_a = main_axis;
+	let axis_b = deviant_axis;
+	let ang_cos = (axis_a.dot(axis_b) as f32) / (vec3_i32_len(&axis_a) * vec3_i32_len(&axis_b));
+	let ang = ang_cos.acos().to_degrees() / 90.0;
+	let ang = ang.round() as i32;
+
+	let normal = cross_product(axis_a, axis_b);
+
+	let rot = if normal.x().abs() > 0 {
+		Rot::new(ang, 0, 0)
+	} else if normal.y().abs() > 0 {
+		Rot::new(ang, 0, 0)
+	} else if normal.z().abs() > 0 {
+		Rot::new(ang, 0, 0)
+	} else {
+		panic!("Unintended use of private function - one of axes are not grid-aligned");
+	};
+
+	if rot.apply(axis_b) == axis_a {
+		-ang
+	} else {
+		ang
+	}
+}
+
+fn get_perpendicular_axis(perp_to: &Vec3<i32>, axes: &Vec3<Vec3<i32>>, ignore_xy: (bool, bool)) -> Option<Axis> {
+	let (ax, ay, az) = axes.tuple_ref();
+
+	if ax.dot(perp_to.clone()) == 0 && *perp_to.x() == 0 && !ignore_xy.0 {
+		Some(Axis::X)
+	} else if ay.dot(perp_to.clone()) == 0 && *perp_to.y() == 0 && !ignore_xy.1 {
+		Some(Axis::Y)
+	} else if az.dot(perp_to.clone()) == 0 && *perp_to.z() == 0 {
+		Some(Axis::Z)
+	} else {
+		None
+	}
+}
+
+impl PartialEq for Rot {
+	fn eq(&self, other: &Self) -> bool {
+		self.rot_x == other.rot_x &&
+			self.rot_y == other.rot_y &&
+			self.rot_z == other.rot_z
+	}
+}
+
+fn apply_rot_x<N>(vec: Vec3<N>, amount: i32) -> Vec3<N>
+	where N: Neg<Output = N>
+{
+	let amount = ((amount % 4) + 4) % 4;
+	let (x, y, z) = vec.tuple();
+	match amount {
+		0 => Vec3::new_ng(x, y, z),
+		1 => Vec3::new_ng(x, -z, y),
+		2 => Vec3::new_ng(x, -y, -z),
+		3 => Vec3::new_ng(x, z, -y),
+		_ => panic!("Mod operation somehow failed :/ (internal error)"),
+	}
+}
+
+fn apply_rot_y<N>(vec: Vec3<N>, amount: i32) -> Vec3<N>
+	where N: Neg<Output = N>
+{
+	let amount = ((amount % 4) + 4) % 4;
+	let (x, y, z) = vec.tuple();
+	match amount {
+		0 => Vec3::new_ng(x, y, z),
+		1 => Vec3::new_ng(z, y, -x),
+		2 => Vec3::new_ng(-x, y, -z),
+		3 => Vec3::new_ng(-z, y, x),
+		_ => panic!("Mod operation somehow failed :/ (internal error)"),
+	}
+}
+
+fn apply_rot_z<N>(vec: Vec3<N>, amount: i32) -> Vec3<N>
+	where N: Neg<Output = N>
+{
+	let amount = ((amount % 4) + 4) % 4;
+	let (x, y, z) = vec.tuple();
+	match amount {
+		0 => Vec3::new_ng(x, y, z),
+		1 => Vec3::new_ng(-y, x, z),
+		2 => Vec3::new_ng(-x, -y, z),
+		3 => Vec3::new_ng(y, -x, z),
+		_ => panic!("Mod operation somehow failed :/ (internal error)"),
+	}
+}
