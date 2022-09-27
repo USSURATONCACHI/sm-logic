@@ -11,7 +11,7 @@ pub trait Positioner: Debug + Clone {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ManualPos {
-	poses: HashMap<String, (Point, Rot)>,
+	poses: HashMap<String, (Option<Point>, Rot)>,
 	last_scheme: Option<String>,
 }
 
