@@ -1,12 +1,13 @@
 mod vec3;
 mod map3d;
 mod rot;
-pub mod mat3;
-mod mat;
+mod mat3;
 
 pub use vec3::Vec3;
 pub use map3d::Map3D;
 pub use rot::Rot;
+pub use mat3::Mat3x3;
+
 
 pub const TICKS_PER_SECOND: u32 = 40;
 

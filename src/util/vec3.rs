@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Add, Neg};
+use std::ops::{Add, Index, IndexMut, Neg};
 use std::ops::AddAssign;
 use std::ops::Div;
 use std::ops::DivAssign;
@@ -14,6 +14,30 @@ pub struct Vec3<N> {
 	x: N,
 	y: N,
 	z: N,
+}
+
+impl<N> Index<usize> for Vec3<N> {
+	type Output = N;
+
+	fn index(&self, index: usize) -> &Self::Output {
+		match index {
+			0 => self.x(),
+			1 => self.y(),
+			2 => self.z(),
+			i => panic!("Invalid index in Vec3: {}", i),
+		}
+	}
+}
+
+impl<N> IndexMut<usize> for Vec3<N> {
+	fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+		match index {
+			0 => self.x_mut(),
+			1 => self.y_mut(),
+			2 => self.z_mut(),
+			i => panic!("Invalid index in Vec3: {}", i),
+		}
+	}
 }
 
 impl<T, N: Neg<Output = T>> Neg for Vec3<N> {
