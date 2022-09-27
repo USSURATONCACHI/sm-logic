@@ -5,14 +5,15 @@ mod mat3;
 
 pub use vec3::Vec3;
 pub use map3d::Map3D;
-pub use rot::Rot;
+pub use rot::*;
 pub use mat3::Mat3x3;
+
+pub type Bounds = Vec3<u32>;
+pub type Point = Vec3<i32>;
 
 
 pub const TICKS_PER_SECOND: u32 = 40;
 
-pub type Bounds = Vec3<u32>;
-pub type Point = Vec3<i32>;
 
 #[derive(Debug, Clone, Copy)]
 pub enum GateMode {

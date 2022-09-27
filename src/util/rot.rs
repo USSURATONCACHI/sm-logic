@@ -1,4 +1,5 @@
-use crate::util::mat3::Mat3x3;
+use crate::util::Mat3x3;
+use crate::util::Point;
 use crate::util::Vec3;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +33,136 @@ impl Rot {
 	}
 }
 
+impl Rot {
+	/// Returns (xaxis, zaxis, pos offset)
+	pub fn to_sm_data(&self) -> (i32, i32, Point) {
+		let (facing, orient) = self.to_facing_orient();
+		let (xaxis, zaxis, dx, dy, dz) = facing.to_data(orient);
+		(xaxis, zaxis, Point::new(dx, dy, dz))
+	}
+
+	pub fn to_facing_orient(&self) -> (Facing, Orient) {
+		let z_axis = self.apply((0, 0, 1).into());
+		let x_axis = self.apply((1, 0, 0).into());
+
+		let facing =
+			if *z_axis.z() == 1 		{ Facing::PosZ }
+			else if *z_axis.z() == -1 	{ Facing::NegZ }
+			else if *z_axis.y() == 1 	{ Facing::PosY }
+			else if *z_axis.y() == -1 	{ Facing::NegY }
+			else if *z_axis.x() == 1 	{ Facing::PosX }
+			else if *z_axis.x() == -1 	{ Facing::NegX }
+			else { panic!("Incorrect rotations") };
+
+		if *x_axis.x() == 1 {
+			return (facing, Orient::Up);
+		} else if *x_axis.x() == -1 {
+			return (facing, Orient::Down);
+		}
+
+		if *x_axis.z() == 1 {
+			return (facing, Orient::Up);
+		} else if *x_axis.z() == -1 {
+			return (facing, Orient::Down);
+		}
+
+		if *x_axis.y() == 1 {
+			return match facing {
+				Facing::PosZ | Facing::NegX =>
+					(facing, Orient::Right),
+				_ => (facing, Orient::Left),
+			}
+		} else if *x_axis.y() == -1 {
+			return match facing {
+				Facing::PosZ | Facing::NegX =>
+					(facing, Orient::Left),
+				_ => (facing, Orient::Right),
+			}
+		}
+
+		panic!("Incorrect rotations");
+	}
+}
+
+///\[\(xaxis, zaxis, offset_x, offset_y, offset_z\)\]
+const ROTATIONS_DATA: [(i32, i32, i32, i32, i32); 24] = [
+	( 1, -2, 0,  0, 0),
+	(-2, -1, 1,  0, 0),
+	(-1,  2, 1, -1, 0),
+	( 2,  1, 0, -1, 0),
+	( 3, -1, 1, -1, 0),
+	(-1, -3, 1, -1, 1),
+	(-3,  1, 0, -1, 1),
+	( 1,  3, 0, -1, 0),
+	( 3,  2, 0, -1, 0),
+	( 2, -3, 0, -1, 1),
+	(-3, -2, 0,  0, 1),
+	(-2,  3, 0,  0, 0),
+	( 1,  2, 0, -1, 1),
+	( 2, -1, 1, -1, 1),
+	(-1, -2, 1,  0, 1),
+	(-2,  1, 0,  0, 1),
+	( 3,  1, 0,  0, 0),
+	( 1, -3, 0,  0, 1),
+	(-3, -1, 1,  0, 1),
+	(-1,  3, 1,  0, 0),
+	( 3, -2, 1,  0, 0),
+	(-2, -3, 1,  0, 1),
+	(-3,  2, 1, -1, 1),
+	( 2,  3, 1, -1, 0),
+];
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Facing {
+	PosX,
+	PosY,
+	PosZ,
+	NegX,
+	NegY,
+	NegZ,
+}
+
+impl Facing {
+	pub fn to_data(&self, orient: Orient) -> (i32, i32, i32, i32, i32) {
+		let facing_id = match self {
+			Facing::PosZ => 0,
+			Facing::PosY => 1,
+			Facing::PosX => 2,
+			Facing::NegZ => 3,
+			Facing::NegY => 4,
+			Facing::NegX => 5,
+		};
+
+		let orient_id = match orient {
+			Orient::Up => 0,
+			Orient::Down => 1,
+			Orient::Left => 2,
+			Orient::Right => 3,
+		};
+
+		ROTATIONS_DATA[facing_id * 4 + orient_id]
+	}
+
+	pub fn to_rot(&self) -> Rot {
+		match self {
+			Facing::PosX => Rot::new(0, 1, 0),
+			Facing::PosY => Rot::new(-1, 0, 0),
+			Facing::PosZ => Rot::new(0, 0, 0),
+			Facing::NegX => Rot::new(0, -1, 0),
+			Facing::NegY => Rot::new(1, 0, 0),
+			Facing::NegZ => Rot::new(2, 0, 0),
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Orient {
+	Up,
+	Down,
+	Left,
+	Right,
+}
+
 #[test]
 fn rotation_test() {
 	let mut rots: Vec<Rot> = vec![];
@@ -55,4 +186,27 @@ fn rotation_test() {
 			assert_eq!(order_1, order_2);
 		}
 	}
+}
+
+#[test]
+fn facing_to_rot_test() {
+	let vec = Vec3::new_ng(0_i32, 0, 1);
+
+	let pos_x = Facing::PosX.to_rot().apply(vec.clone());
+	assert_eq!(Vec3::new_ng(1_i32, 0, 0), pos_x);
+
+	let pos_y = Facing::PosY.to_rot().apply(vec.clone());
+	assert_eq!(Vec3::new_ng(0_i32, 1, 0), pos_y);
+
+	let pos_z = Facing::PosZ.to_rot().apply(vec.clone());
+	assert_eq!(Vec3::new_ng(0_i32, 0, 1), pos_z);
+
+	let neg_x = Facing::NegX.to_rot().apply(vec.clone());
+	assert_eq!(Vec3::new_ng(-1_i32, 0, 0), neg_x);
+
+	let neg_y = Facing::NegY.to_rot().apply(vec.clone());
+	assert_eq!(Vec3::new_ng(0_i32, -1, 0), neg_y);
+
+	let neg_z = Facing::NegZ.to_rot().apply(vec.clone());
+	assert_eq!(Vec3::new_ng(0_i32, 0, -1), neg_z);
 }
