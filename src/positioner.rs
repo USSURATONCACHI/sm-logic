@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use crate::positioner::ManualPosError::{SchemeHasNoPosition, SchemeIsNotPlaced};
 use crate::scheme::Scheme;
 use crate::util::{Point, Rot};
 
 pub trait Positioner: Debug + Clone {
+	type Error;
+
 	fn set_last_scheme(&mut self, scheme_name: String);
-	fn arrange(self, schemes: HashMap<String, Scheme>) -> Vec<(Point, Rot, Scheme)>;
+	fn arrange(self, schemes: HashMap<String, Scheme>) -> Result<HashMap<String, (Point, Rot, Scheme)>, Self::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -79,12 +82,36 @@ impl ManualPos {
 	}
 }
 
+pub enum ManualPosError {
+	SchemeIsNotPlaced { name: String },
+	SchemeHasNoPosition { name: String },
+}
+
 impl Positioner for ManualPos {
+	type Error = ManualPosError;
+
 	fn set_last_scheme(&mut self, scheme_name: String) {
 		self.last_scheme = Some(scheme_name);
 	}
 
-	fn arrange(self, _schemes: HashMap<String, Scheme>) -> Vec<(Point, Rot, Scheme)> {
-		todo!()
+	fn arrange(self, schemes: HashMap<String, Scheme>) -> Result<HashMap<String, (Point, Rot, Scheme)>, Self::Error> {
+		let mut posed_schemes: HashMap<String, (Point, Rot, Scheme)> = HashMap::new();
+
+		for (name, scheme) in schemes {
+			match self.poses.get(&name) {
+				None => return Err(SchemeIsNotPlaced { name }),
+
+				Some((pos, rot)) =>
+					match pos {
+						None => return Err(SchemeHasNoPosition { name }),
+
+						Some(pos) => {
+							posed_schemes.insert(name, (pos.clone(), rot.clone(), scheme));
+						},
+					}
+			}
+		}
+
+		Ok(posed_schemes)
 	}
 }

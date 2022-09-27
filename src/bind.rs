@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use crate::connection::{ConnDim, Connection, ConnStraight};
-use crate::scheme::Scheme;
 use crate::slot::Slot;
 use crate::util::{Bounds, Point};
 
