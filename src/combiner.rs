@@ -1,10 +1,8 @@
 use std::collections::HashMap;
+use crate::bind::Bind;
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::positioner::{ManualPos, Positioner};
 use crate::scheme::Scheme;
-use crate::util::Rot;
-
-type Bind = ();         // TODO
 
 #[derive(Debug, Clone)]
 pub struct Warns {
@@ -35,6 +33,10 @@ pub struct Combiner<P: Positioner> {
 	inputs: Vec<Bind>,
 	outputs: Vec<Bind>,
 
+	// Name, slot path, new kind
+	inp_passes: Vec<(String, String, Option<String>)>,
+	out_passes: Vec<(String, String, Option<String>)>,
+
 	warns: Warns,
 }
 
@@ -52,6 +54,8 @@ impl<P: Positioner> Combiner<P> {
 			positioner,
 			inputs: vec![],
 			outputs: vec![],
+			inp_passes: vec![],
+			out_passes: vec![],
 			warns: Warns::new(),
 		}
 	}
@@ -121,22 +125,37 @@ impl<P: Positioner> Combiner<P> {
 	{
 		self.custom(from, to, ConnDim::new(adapt_axes))
 	}
+}
 
-	// Also: bind_output
-	#[allow(unused_variables)]
+impl<P: Positioner> Combiner<P> {
 	pub fn bind_input<B>(&mut self, bind: B)
 		where B: Into<Bind>
 	{
-		todo!()
+		self.inputs.push(bind.into());
 	}
 
-	// Also: pass_output
-	#[allow(unused_variables)]
-	pub fn pass_input<S, T>(&mut self, slot: S, new_type: Option<T>)
-		where S: Into<String>,
-			  T: Into<String>
+	pub fn bind_output<B>(&mut self, bind: B)
+		where B: Into<Bind>
 	{
-		todo!()
+		self.outputs.push(bind.into());
+	}
+
+	pub fn pass_input<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>)
+		where S: Into<String>,
+				Pt: Into<String>,
+			  K: Into<String>
+	{
+		let new_kind = new_kind.map(|k| k.into());
+		self.inp_passes.push((name.into(), path.into(), new_kind));
+	}
+
+	pub fn pass_output<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>)
+		where S: Into<String>,
+			  Pt: Into<String>,
+			  K: Into<String>
+	{
+		let new_kind = new_kind.map(|k| k.into());
+		self.out_passes.push((name.into(), path.into(), new_kind));
 	}
 }
 
