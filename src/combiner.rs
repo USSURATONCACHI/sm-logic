@@ -1,38 +1,31 @@
-#![allow(unused_variables, dead_code)]
-
 use std::collections::HashMap;
-use crate::connection::Connection;
+use crate::connection::{Connection, ConnStraight};
 use crate::scheme::Scheme;
+use crate::util::Rot;
 
-type SlotPath = ();     // TODO
-type Placement = ();    // TODO
 type Bind = ();         // TODO
-type Warn = ();         // TODO
-type Rotation = ();		// TODO
 
 #[derive(Debug, Clone)]
-struct ConnCase {
-	from: SlotPath,
-	to: SlotPath,
-	connection: Box<dyn Connection>,
+pub struct Warns {
+	pub invalid_conns: Vec<ConnCase>
 }
 
 #[derive(Debug, Clone)]
-struct SchemeCase {
-	scheme: Scheme,
-	pos: Placement,
-	rot: Rotation,
+pub struct ConnCase {
+	pub from: String,
+	pub to: String,
+	pub connection: Box<dyn Connection>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Combiner {
-	schemes: HashMap<String, SchemeCase>,
+	schemes: HashMap<String, Scheme>,
 	connections: Vec<ConnCase>,
 
 	inputs: Vec<Bind>,
 	outputs: Vec<Bind>,
 
-	warns: Vec<Warn>,
+	warns: Warns,
 }
 
 impl Combiner {
@@ -51,32 +44,7 @@ impl Combiner {
 		where N: Into<String>,
 			  S: Into<Scheme>
 	{
-		todo!()
-	}
-
-	/*
-	Also:
-		place_iter(pairs: I),
-		place_last(at: P)
-	*/
-	pub fn place<N, P>(&mut self, scheme_name: N, at: P)
-		where N: Into<String>
-	{
-		todo!()
-	}
-
-	pub fn rotate_by<N, R>(&mut self, scheme_name: N, rot: R)
-		where N: Into<String>,
-			  R: Into<Rotation>,
-	{
-		todo!()
-	}
-
-	pub fn rotate_at<N, R>(&mut self, scheme_name: N, rot: R)
-		where N: Into<String>,
-			  R: Into<Rotation>,
-	{
-		todo!()
+		self.schemes.insert(name.into(), scheme.into());
 	}
 
 	/*
@@ -86,14 +54,28 @@ impl Combiner {
 		chain?,
 		connect_func,
 	*/
-	pub fn connect<P1, P2>(&mut self, from: P1, to: P2)
-		where P1: Into<SlotPath>,
-			  P2: Into<SlotPath>
+	pub fn custom<P1, P2>(&mut self, from: P1, to: P2, conn: Box<dyn Connection>)
+		where P1: Into<String>,
+			  P2: Into<String>
 	{
-		todo!()
+		self.connections.push(
+			ConnCase {
+				from: from.into(),
+				to: to.into(),
+				connection: conn,
+			}
+		);
+	}
+
+	pub fn connect<P1, P2>(&mut self, from: P1, to: P2)
+		where P1: Into<String>,
+			  P2: Into<String>
+	{
+		self.custom(from, to, ConnStraight::new())
 	}
 
 	// Also: bind_output
+	#[allow(unused_variables)]
 	pub fn bind_input<B>(&mut self, bind: B)
 		where B: Into<Bind>
 	{
@@ -101,8 +83,9 @@ impl Combiner {
 	}
 
 	// Also: pass_output
+	#[allow(unused_variables)]
 	pub fn pass_input<S, T>(&mut self, slot: S, new_type: Option<T>)
-		where S: Into<SlotPath>,
+		where S: Into<String>,
 			  T: Into<String>
 	{
 		todo!()
@@ -110,7 +93,7 @@ impl Combiner {
 }
 
 impl Combiner {
-	pub fn compile(self) -> (Scheme, Vec<Warn>) {
+	pub fn compile(self) -> (Scheme, Warns) {
 		todo!()
 	}
 }
