@@ -27,26 +27,55 @@ impl ManualPos {
 		where S: Into<String>,
 				P: Into<Point>
 	{
-		todo!()
+		let name = name.into();
+		let pos_at = at.into();
+		self.create_if_n_exists(&name);
+
+		let (pos, _) = self.poses.get_mut(&name)
+			.unwrap();
+
+		*pos = Some(pos_at);
 	}
 
 	pub fn place_last<P>(&mut self, at: P)
 		where P: Into<Point>
 	{
-		todo!()
+		match self.last_scheme.clone() {
+			None => panic!("No schemes were added to place (ManualPos::place_last)"),
+			Some(name) => self.place(name, at),
+		}
 	}
 
 	pub fn rotate<S, R>(&mut self, name: S, by: R)
 		where S: Into<String>,
 				R: Into<Rot>,
 	{
-		todo!()
+		let name = name.into();
+		let rot_by = by.into();
+		self.create_if_n_exists(&name);
+
+		let (_, rot) = self.poses.get_mut(&name)
+			.unwrap();
+
+		*rot = rot_by.apply_to_rot(rot.clone());
 	}
 
 	pub fn rotate_last<R>(&mut self, by: R)
 		where R: Into<Rot>,
 	{
-		todo!()
+		match self.last_scheme.clone() {
+			None => panic!("No schemes were added to place (ManualPos::place_last)"),
+			Some(name) => self.rotate(name, by),
+		}
+	}
+
+	fn create_if_n_exists(&mut self, name: &String) {
+		if self.poses.get(name).is_none() {
+			self.poses.insert(
+				name.to_string(),
+				(None, Rot::new(0, 0, 0))
+			);
+		}
 	}
 }
 
@@ -55,7 +84,7 @@ impl Positioner for ManualPos {
 		self.last_scheme = Some(scheme_name);
 	}
 
-	fn arrange(self, schemes: HashMap<String, Scheme>) -> Vec<(Point, Rot, Scheme)> {
+	fn arrange(self, _schemes: HashMap<String, Scheme>) -> Vec<(Point, Rot, Scheme)> {
 		todo!()
 	}
 }

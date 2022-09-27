@@ -29,6 +29,7 @@ pub enum SlotError {
 #[derive(Debug, Clone)]
 pub struct Slot {
 	name: String,
+	#[allow(dead_code)]
 	kind: String,
 	size: Bounds,
 	pos: Point,
