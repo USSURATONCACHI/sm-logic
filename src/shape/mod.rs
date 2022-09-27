@@ -52,7 +52,7 @@ impl Shape {
 		self.out_conns.extend(controller_ids);
 	}
 
-	pub fn size(&self) -> Bounds {
+	pub fn bounds(&self) -> Bounds {
 		self.base.size()
 	}
 

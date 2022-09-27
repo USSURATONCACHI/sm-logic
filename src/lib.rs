@@ -1,6 +1,3 @@
-#[cfg(test)]
-mod tests;
-
 pub mod util;
 pub mod combiner;
 pub mod connection;

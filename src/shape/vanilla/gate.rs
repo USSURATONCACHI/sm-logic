@@ -1,6 +1,6 @@
 use json::{JsonValue, object};
 use crate::shape::{out_conns_to_controller, Shape, ShapeBase, ShapeBuildData};
-use crate::util::{Bounds, GateMode, Point, Rot};
+use crate::util::{Bounds, GateMode};
 
 pub const DEFAULT_GATE_COLOR: &str = "df7f00";
 pub const GATE_UUID: &str = "9f0f56e8-2c31-4d83-996c-d00a9b296c3f";

@@ -1,6 +1,6 @@
 use json::{JsonValue, object};
 use crate::shape::{out_conns_to_controller, Shape, ShapeBase, ShapeBuildData};
-use crate::util::{Bounds, Point, Rot, TICKS_PER_SECOND};
+use crate::util::{Bounds, TICKS_PER_SECOND};
 
 
 pub const DEFAULT_TIMER_COLOR: &str = "df7f00";
