@@ -1,7 +1,28 @@
 use std::collections::HashMap;
+use crate::combiner::SlotSide;
 use crate::connection::{ConnDim, Connection, ConnStraight};
+use crate::scheme;
 use crate::slot::Slot;
-use crate::util::{Bounds, Point};
+use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, split_first_token};
+
+
+pub enum InvalidConn {
+	TargetSchemeDoesNotExists {
+		sector: BasicBind,
+		target_scheme: String,
+	},
+
+	TargetSlotDoesNotExists {
+		sector: BasicBind,
+		target_slot: String,
+	},
+
+	TargetSlotSectorDoesNotExists {
+		sector: BasicBind,
+		target_slot: String,
+		target_slot_sector: String,
+	}
+}
 
 #[derive(Debug, Clone)]
 pub struct Bind {
@@ -132,13 +153,116 @@ impl Bind {
 }
 
 impl Bind {
-	pub fn compile(self, schemes: HashMap<String, &Vec<Slot>>) -> Slot {
-		todo!()
+	// 										name, start shape, slots
+	pub fn compile(self, schemes: &HashMap<String, (usize, &Vec<Slot>)>, side: SlotSide)
+		-> (Slot, Vec<InvalidConn>)
+	{
+		let mut map: Map3D<Vec<usize>> = Map3D::new(self.bounds().cast().tuple(), vec![]);
+		let mut errors: Vec<InvalidConn> = vec![];
+
+		for sector in self.maps {
+			let (start_shape, slot, slot_sector_start, slot_sector_size) =
+				match compile_get_slot(&sector, schemes) {
+					Err(e) => {
+						errors.push(e);
+						continue;
+					}
+
+					Ok(values) => values,
+				};
+
+			// Point-to-point
+			let p2p_conns: Vec<(Point, Point)> = match side {
+				SlotSide::Input => sector.conn
+					.connect(sector.sector_size, slot_sector_size)
+					.into_iter()
+					.map(|(from, to)| (from + sector.sector_corner, to  + slot_sector_start))
+					.collect(),
+
+				SlotSide::Output => sector.conn
+					.connect(slot_sector_size, sector.sector_size)
+					.into_iter()
+					.map(|(from, to)| (to + slot_sector_start, from + sector.sector_corner))
+					.collect(),
+			};
+
+			for (from_this, to_slot) in p2p_conns {
+				if !is_point_in_bounds(from_this, sector.sector_size) ||
+					!is_point_in_bounds(to_slot, slot_sector_size) {
+					continue;
+				}
+
+				let to_slot_shapes = slot.get_point(to_slot)
+					.unwrap()
+					.iter()
+					.map(|controller_id| controller_id + start_shape);
+
+				map.get_mut(from_this.cast().tuple())
+					.unwrap()
+					.extend(to_slot_shapes)
+			}
+		}
+
+		let slot = Slot::new(self.name, self.kind, self.size, map);
+		(slot, errors)
+	}
+}
+
+fn compile_get_slot<'a>(sector: &BasicBind, schemes: &HashMap<String, (usize, &'a Vec<Slot>)>)
+	-> Result<(usize, &'a Slot, Point, Bounds), InvalidConn>
+{
+	let target = sector.target.clone();
+	let (target_scheme, slot) = split_first_token(target);
+	let slot = match slot {
+		None => "".to_string(),
+		Some(slot) => slot,
+	};
+
+	let (slot_name, slot_sector) = split_first_token(slot);
+	let slot_sector = match slot_sector {
+		None => "".to_string(),
+		Some(slot_sector) => slot_sector,
+	};
+
+	let (start_shape, slots) = match schemes.get(&target_scheme) {
+		None => {
+			return Err(InvalidConn::TargetSchemeDoesNotExists {
+				sector: sector.clone(),
+				target_scheme
+			});
+		},
+
+		Some((start_shape, slots)) =>
+			(*start_shape, slots)
+	};
+
+	let slot = match scheme::find_slot(&slot_name, slots) {
+		None => {
+			return Err(InvalidConn::TargetSlotDoesNotExists {
+				sector: sector.clone(),
+				target_slot: slot_name
+			});
+		}
+		Some(slot) => slot,
+	};
+
+	match slot.get_sector(&slot_sector) {
+		None => {
+			Err(InvalidConn::TargetSlotSectorDoesNotExists {
+				sector: sector.clone(),
+				target_slot: slot_name,
+				target_slot_sector: slot_sector,
+			})
+		}
+
+		Some((sector_start, sector_bounds)) => {
+			Ok((start_shape, slot, sector_start, sector_bounds))
+		}
 	}
 }
 
 #[derive(Debug, Clone)]
-struct BasicBind {
+pub struct BasicBind {
 	sector_corner: Point,
 	sector_size: Bounds,
 	target: String,

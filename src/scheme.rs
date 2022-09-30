@@ -4,6 +4,8 @@ use crate::util::Bounds;
 use crate::util::Rot;
 use crate::util::Point;
 
+pub const DEFAULT_SLOT: &str = "_";
+
 #[derive(Debug, Clone)]
 pub struct Scheme {
 	shapes: Vec<(Point, Rot, Shape)>,
@@ -102,11 +104,16 @@ impl Scheme {
 	}
 }
 
-fn find_slot<N: Into<String>>(name: N, slots: &Vec<Slot>) -> Option<&Slot> {
+pub fn find_slot<N: Into<String>>(name: N, slots: &Vec<Slot>) -> Option<&Slot> {
 	let name = name.into();
+	let search_for = if name.len() == 0 {
+		DEFAULT_SLOT
+	} else {
+		&name
+	};
 
 	for slot in slots {
-		if slot.name().eq(&name) {
+		if slot.name().eq(search_for) {
 			return Some(slot);
 		}
 	}

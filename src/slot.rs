@@ -7,7 +7,7 @@ use crate::util::Point;
 pub struct BaseSlotData {
 	pub name: String,
 	pub kind: String,
-	pub size: Bounds,
+	pub bounds: Bounds,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +63,14 @@ impl Slot {
 		match pos.try_cast::<usize>() {
 			Ok(pos) => self.shape_map.get(pos.tuple()),
 			Err(_) => None,
+		}
+	}
+
+	pub fn base_data(&self) -> BaseSlotData {
+		BaseSlotData {
+			name: self.name.clone(),
+			kind: self.kind.clone(),
+			bounds: self.bounds.clone(),
 		}
 	}
 
