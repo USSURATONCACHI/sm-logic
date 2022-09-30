@@ -63,3 +63,12 @@ pub fn split_first_token(path: String) -> (String, Option<String>) {
 		}
 	}
 }
+
+
+pub enum PathType {
+	SchemeSlot,			// <scheme>/<slot path>
+	Slot,				// <slot path/name>, maybe zero length
+	CombinerInput,		// $I:<input path/name> path to combiner input
+	CombinerOutput,		// $O:<output path/name> path to combiner output
+
+}

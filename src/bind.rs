@@ -127,13 +127,12 @@ impl Bind {
 			}
 		};
 
-
 		self
 	}
 }
 
 impl Bind {
-	pub fn compile(self, schemes: &HashMap<String, &Vec<Slot>>) -> Slot {
+	pub fn compile(self, schemes: HashMap<String, &Vec<Slot>>) -> Slot {
 		todo!()
 	}
 }

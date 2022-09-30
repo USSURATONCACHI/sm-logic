@@ -1,20 +1,62 @@
 use std::collections::HashMap;
 use crate::bind::Bind;
+use crate::combiner::CombinerError::SchemeNameWasAlreadyTaken;
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::positioner::{ManualPos, Positioner};
 use crate::scheme::Scheme;
+use crate::slot::Slot;
+use crate::util::split_first_token;
 
 #[derive(Debug, Clone)]
 pub struct Warns {
-	pub invalid_conns: Vec<ConnCase>
+	pub invalid_conns: Vec<ConnCase>,
+	// Input or Output, name, target path, new_kind
+	pub non_existent_passes: Vec<(SlotSide, String, String, Option<String>)>
 }
 
 impl Warns {
 	pub fn new() -> Self {
 		Warns {
-			invalid_conns: vec![]
+			invalid_conns: vec![],
+			non_existent_passes: vec![],
 		}
 	}
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SlotSide {
+	Input, Output
+}
+
+pub enum CombinerError {
+	InvalidName {
+		name: String,
+		tip: String,
+	},
+
+	PassHasInvalidTarget {
+		pass_name: String,
+		new_kind: Option<String>,
+		side: SlotSide,
+
+		target: String,
+		tip: String,
+	},
+
+	SchemeNameWasAlreadyTaken {
+		name: String,
+		failed_to_add: Scheme,
+	},
+
+	SlotNameWasAlreadyTaken {
+		name: String,
+		side: SlotSide,
+		failed_to_add: Bind,
+	},
+
+
+
+
 }
 
 #[derive(Debug, Clone)]
@@ -66,34 +108,62 @@ impl<P: Positioner> Combiner<P> {
 }
 
 impl<P: Positioner> Combiner<P> {
-	pub fn add<N, S>(&mut self, name: N, scheme: S)
+	pub fn add<N, S>(&mut self, name: N, scheme: S) -> Result<(), CombinerError>
 		where N: Into<String>,
 			  S: Into<Scheme>
 	{
 		let name = name.into();
-		self.schemes.insert(name.clone(), scheme.into());
-		self.pos().set_last_scheme(name);
+		if self.schemes.get(&name).is_some() {
+			self.schemes.insert(name.clone(), scheme.into());
+			self.pos().set_last_scheme(name);
+			Ok(())
+		} else {
+			Err(SchemeNameWasAlreadyTaken {
+				name,
+				failed_to_add: scheme.into(),
+			})
+		}
 	}
 
-	pub fn add_iter<N, S, I>(&mut self, pairs: I)
+	pub fn add_iter<N, S, I>(&mut self, pairs: I) -> Result<(), Vec<CombinerError>>
 		where N: Into<String>,
 			  S: Into<Scheme>,
 			  I: IntoIterator<Item = (N, S)>
 	{
+		let mut errors: Vec<CombinerError> = vec![];
 		for (name, scheme) in pairs {
-			self.add(name, scheme);
+			match self.add(name, scheme) {
+				Ok(()) => {},
+				Err(e) => errors.push(e),
+			}
+		}
+
+		if errors.len() > 0 {
+			return Err(errors)
+		} else {
+			Ok(())
 		}
 	}
 
-	pub fn add_mul<S, N, I>(&mut self, names: I, scheme: S)
+	pub fn add_mul<S, N, I>(&mut self, names: I, scheme: S) -> Result<(), Vec<CombinerError>>
 		where S: Into<Scheme>,
 			  N: Into<String>,
 			  I: IntoIterator<Item = N>,
 	{
 		let scheme = scheme.into();
+		let mut errors: Vec<CombinerError> = vec![];
 
 		for name in names {
-			self.add(name, scheme.clone());
+			match self.add(name, scheme.clone()) {
+				Ok(()) => {},
+				Err(e) => errors.push(e),
+			}
+		}
+
+		if errors.len() > 0 {
+			return Err(errors)
+		} else {
+			Ok(())
 		}
 	}
 }
@@ -140,13 +210,47 @@ impl<P: Positioner> Combiner<P> {
 		self.outputs.push(bind.into());
 	}
 
-	pub fn pass_input<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>)
+	pub fn pass_input<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>) -> Result<(), CombinerError>
 		where S: Into<String>,
 				Pt: Into<String>,
 			  K: Into<String>
 	{
 		let new_kind = new_kind.map(|k| k.into());
-		self.inp_passes.push((name.into(), path.into(), new_kind));
+		let name = name.into();
+
+		if name.contains("/") {
+			return Err(CombinerError::InvalidName {
+				name,
+				tip: "Pass name cannot contain '/' (slash) symbol.".to_string()
+			})
+		}
+
+		let path = path.into();
+		let (target_scheme, target_slot) = split_first_token(path.clone());
+
+		if target_scheme.len() == 0 {
+			return Err(CombinerError::PassHasInvalidTarget {
+				pass_name: name,
+				new_kind,
+				side: SlotSide::Input,
+				target: path,
+				tip: "No Scheme name is specified. Required format: <scheme>/<slot name or path>.".to_string()
+			})
+		}
+
+		if target_slot.is_none() {
+			return Err(CombinerError::PassHasInvalidTarget {
+				pass_name: name,
+				new_kind,
+				side: SlotSide::Input,
+				target: path,
+				tip: "No Slot name is specified. Required format: <scheme>/<slot name or path>.".to_string()
+			})
+		}
+
+
+
+		Ok(())
 	}
 
 	pub fn pass_output<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>)
@@ -160,7 +264,29 @@ impl<P: Positioner> Combiner<P> {
 }
 
 impl<P: Positioner> Combiner<P> {
-	pub fn compile(self) -> (Scheme, Warns) {
+	pub fn compile(self) -> Result<(Scheme, Warns), Vec<CombinerError>> {
 		todo!()
+	}
+}
+
+impl<P: Positioner> Combiner<P> {
+	pub fn schemes_inputs(&self) -> HashMap<String, &Vec<Slot>> {
+		let mut map: HashMap<String, &Vec<Slot>> = HashMap::new();
+
+		for (name, scheme) in &self.schemes {
+			map.insert(name.to_string(), scheme.inputs());
+		}
+
+		map
+	}
+
+	pub fn schemes_outputs(&self) -> HashMap<String, &Vec<Slot>> {
+		let mut map: HashMap<String, &Vec<Slot>> = HashMap::new();
+
+		for (name, scheme) in &self.schemes {
+			map.insert(name.to_string(), scheme.outputs());
+		}
+
+		map
 	}
 }
