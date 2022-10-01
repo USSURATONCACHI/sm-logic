@@ -29,9 +29,15 @@ pub enum SlotSide {
 }
 
 pub enum CombinerError {
-	InvalidName {
+	InvalidSchemeName {
 		name: String,
+		scheme: Scheme,
 		tip: String,
+	},
+
+	InvalidSlotName {
+		name: String,
+		tip: String
 	},
 
 	PassHasInvalidTarget {
@@ -53,10 +59,6 @@ pub enum CombinerError {
 		side: SlotSide,
 		failed_to_add: Bind,
 	},
-
-
-
-
 }
 
 #[derive(Debug, Clone)]
@@ -75,10 +77,6 @@ pub struct Combiner<P: Positioner> {
 	inputs: Vec<Bind>,
 	outputs: Vec<Bind>,
 
-	// Name, slot path, new kind
-	inp_passes: Vec<(String, String, Option<String>)>,
-	out_passes: Vec<(String, String, Option<String>)>,
-
 	warns: Warns,
 }
 
@@ -96,8 +94,6 @@ impl<P: Positioner> Combiner<P> {
 			positioner,
 			inputs: vec![],
 			outputs: vec![],
-			inp_passes: vec![],
-			out_passes: vec![],
 			warns: Warns::new(),
 		}
 	}
@@ -216,51 +212,138 @@ impl<P: Positioner> Combiner<P> {
 			  K: Into<String>
 	{
 		let new_kind = new_kind.map(|k| k.into());
-		let name = name.into();
-
-		if name.contains("/") {
-			return Err(CombinerError::InvalidName {
-				name,
-				tip: "Pass name cannot contain '/' (slash) symbol.".to_string()
-			})
-		}
-
 		let path = path.into();
-		let (target_scheme, target_slot) = split_first_token(path.clone());
+		let (name, target_scheme, target_slot) =
+			parse_pass_data(name.into(), path.clone(), &new_kind)?;
 
-		if target_scheme.len() == 0 {
-			return Err(CombinerError::PassHasInvalidTarget {
+		let scheme = match self.schemes.get(&target_scheme) {
+			None => return Err(CombinerError::PassHasInvalidTarget {
+				pass_name: name,
+				new_kind,
+				side: SlotSide::Input,
+				target: target_scheme.clone(),
+				tip: format!("Scheme '{}' was not found", target_scheme),
+			}),
+
+			Some(scheme) => scheme,
+		};
+
+		let slot = scheme.input(&target_slot);
+
+		let (slot, sector) = match slot {
+			None => return Err(CombinerError::PassHasInvalidTarget {
 				pass_name: name,
 				new_kind,
 				side: SlotSide::Input,
 				target: path,
-				tip: "No Scheme name is specified. Required format: <scheme>/<slot name or path>.".to_string()
-			})
-		}
+				tip: format!("Slot {}/{} was not found", target_scheme, target_slot)
+			}),
 
-		if target_slot.is_none() {
-			return Err(CombinerError::PassHasInvalidTarget {
-				pass_name: name,
-				new_kind,
-				side: SlotSide::Input,
-				target: path,
-				tip: "No Slot name is specified. Required format: <scheme>/<slot name or path>.".to_string()
-			})
-		}
+			Some(values) => values,
+		};
 
+		let kind = match new_kind {
+			Some(new_kind) => new_kind,
+			None => slot.kind().to_string(),
+		};
 
+		let mut bind = Bind::new(name, kind, sector.bounds);
+		bind.connect_full(path);
+		self.bind_input(bind);
 
 		Ok(())
 	}
 
-	pub fn pass_output<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>)
+	pub fn pass_output<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>) -> Result<(), CombinerError>
 		where S: Into<String>,
 			  Pt: Into<String>,
 			  K: Into<String>
 	{
 		let new_kind = new_kind.map(|k| k.into());
-		self.out_passes.push((name.into(), path.into(), new_kind));
+		let path = path.into();
+		let (name, target_scheme, target_slot) =
+			parse_pass_data(name.into(), path.clone(), &new_kind)?;
+
+		let scheme = match self.schemes.get(&target_scheme) {
+			None => return Err(CombinerError::PassHasInvalidTarget {
+				pass_name: name,
+				new_kind,
+				side: SlotSide::Output,
+				target: target_scheme.clone(),
+				tip: format!("Scheme '{}' was not found", target_scheme),
+			}),
+
+			Some(scheme) => scheme,
+		};
+
+		let slot = scheme.output(&target_slot);
+
+		let (slot, sector) = match slot {
+			None => return Err(CombinerError::PassHasInvalidTarget {
+				pass_name: name,
+				new_kind,
+				side: SlotSide::Output,
+				target: path,
+				tip: format!("Slot {}/{} was not found", target_scheme, target_slot)
+			}),
+
+			Some(values) => values,
+		};
+
+		let kind = match new_kind {
+			Some(new_kind) => new_kind,
+			None => slot.kind().to_string(),
+		};
+
+		let mut bind = Bind::new(name, kind, sector.bounds);
+		bind.connect_full(path);
+		self.bind_output(bind);
+
+		Ok(())
 	}
+}
+
+fn parse_pass_data(name: String, path: String, new_kind: &Option<String>)
+	-> Result<(String, String, String), CombinerError>
+{
+	if name.contains("/") {
+		return Err(CombinerError::InvalidSlotName {
+			name,
+			tip: "Pass name cannot contain '/' (slash) symbol.".to_string()
+		})
+	}
+
+	let (target_scheme, target_slot) = split_first_token(path.clone());
+
+	if target_scheme.len() == 0 {
+		return Err(CombinerError::PassHasInvalidTarget {
+			pass_name: name,
+			new_kind: new_kind.clone(),
+			side: SlotSide::Input,
+			target: path,
+			tip: "No Scheme name is specified. Required format: <scheme>/<slot name>.".to_string()
+		})
+	}
+
+	if target_slot.is_none() {
+		return Err(CombinerError::PassHasInvalidTarget {
+			pass_name: name,
+			new_kind: new_kind.clone(),
+			side: SlotSide::Input,
+			target: path,
+			tip: "No Slot name is specified. Required format: <scheme>/<slot name>.".to_string()
+		})
+	}
+
+	let target_slot = target_slot.unwrap();
+	if target_slot.contains("/") {
+		return Err(CombinerError::InvalidSlotName {
+			name: target_slot,
+			tip: "Pass name cannot contain '/' (slash) symbol. Required format: <scheme>/<slot name>".to_string()
+		});
+	}
+
+	Ok((name, target_scheme, target_slot))
 }
 
 impl<P: Positioner> Combiner<P> {

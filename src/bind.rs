@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use crate::combiner::SlotSide;
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::scheme;
-use crate::slot::Slot;
+use crate::slot::{Slot, SlotSector};
 use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, split_first_token};
 
 
@@ -161,7 +161,7 @@ impl Bind {
 		let mut errors: Vec<InvalidConn> = vec![];
 
 		for sector in self.maps {
-			let (start_shape, slot, slot_sector_start, slot_sector_size) =
+			let (start_shape, slot, slot_sector) =
 				match compile_get_slot(&sector, schemes) {
 					Err(e) => {
 						errors.push(e);
@@ -174,21 +174,21 @@ impl Bind {
 			// Point-to-point
 			let p2p_conns: Vec<(Point, Point)> = match side {
 				SlotSide::Input => sector.conn
-					.connect(sector.sector_size, slot_sector_size)
+					.connect(sector.sector_size, slot_sector.bounds)
 					.into_iter()
-					.map(|(from, to)| (from + sector.sector_corner, to  + slot_sector_start))
+					.map(|(from, to)| (from + sector.sector_corner, to  + slot_sector.pos))
 					.collect(),
 
 				SlotSide::Output => sector.conn
-					.connect(slot_sector_size, sector.sector_size)
+					.connect(slot_sector.bounds, sector.sector_size)
 					.into_iter()
-					.map(|(from, to)| (to + slot_sector_start, from + sector.sector_corner))
+					.map(|(from, to)| (to + slot_sector.pos, from + sector.sector_corner))
 					.collect(),
 			};
 
 			for (from_this, to_slot) in p2p_conns {
 				if !is_point_in_bounds(from_this, sector.sector_size) ||
-					!is_point_in_bounds(to_slot, slot_sector_size) {
+					!is_point_in_bounds(to_slot, slot_sector.bounds) {
 					continue;
 				}
 
@@ -209,7 +209,7 @@ impl Bind {
 }
 
 fn compile_get_slot<'a>(sector: &BasicBind, schemes: &HashMap<String, (usize, &'a Vec<Slot>)>)
-	-> Result<(usize, &'a Slot, Point, Bounds), InvalidConn>
+	-> Result<(usize, &'a Slot, &'a SlotSector), InvalidConn>
 {
 	let target = sector.target.clone();
 	let (target_scheme, slot) = split_first_token(target);
@@ -255,8 +255,8 @@ fn compile_get_slot<'a>(sector: &BasicBind, schemes: &HashMap<String, (usize, &'
 			})
 		}
 
-		Some((sector_start, sector_bounds)) => {
-			Ok((start_shape, slot, sector_start, sector_bounds))
+		Some(sector) => {
+			Ok((start_shape, slot, sector))
 		}
 	}
 }

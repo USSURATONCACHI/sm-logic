@@ -28,6 +28,13 @@ pub enum SlotError {
 }
 
 #[derive(Debug, Clone)]
+pub struct SlotSector {
+	pub pos: Point,
+	pub bounds: Bounds,
+	pub kind: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Slot {
 	name: String,
 	#[allow(dead_code)]		// Feature with Slot kinds is planned
@@ -35,12 +42,16 @@ pub struct Slot {
 	bounds: Bounds,
 
 	shape_map: Map3D<Vec<usize>>,
-	sectors: HashMap<String, (Point, Bounds)>,
+	sectors: HashMap<String, SlotSector>,
 }
 
 impl Slot {
 	pub fn name(&self) -> &String {
 		&self.name
+	}
+
+	pub fn kind(&self) -> &String {
+		&self.kind
 	}
 
 	pub fn bounds(&self) -> Bounds {
@@ -51,11 +62,11 @@ impl Slot {
 		&self.shape_map
 	}
 
-	pub fn sectors(&self) -> &HashMap<String, (Point, Bounds)> {
+	pub fn sectors(&self) -> &HashMap<String, SlotSector> {
 		&self.sectors
 	}
 
-	pub fn sectors_mut(&mut self) -> &mut HashMap<String, (Point, Bounds)> {
+	pub fn sectors_mut(&mut self) -> &mut HashMap<String, SlotSector> {
 		&mut self.sectors
 	}
 
@@ -77,32 +88,27 @@ impl Slot {
 	pub fn new(name: String, kind: String, bounds: Bounds, shape_map: Map3D<Vec<usize>>) -> Self {
 		Slot {
 			name,
-			kind,
+			kind: kind.clone(),
 			bounds,
 			shape_map,
-			sectors: HashMap::new()
+			sectors: {
+				// Sector with empty name is the slot itself
+				let mut map = HashMap::new();
+				map.insert("".to_string(), SlotSector {
+					pos: Point::new_ng(0, 0, 0),
+					bounds,
+					kind,
+				});
+				map
+			}
 		}
 	}
 
-	pub fn get_sector(&self, path: &String) -> Option<(Point, Bounds)> {
-		if path.len() == 0 {
-			Some((Point::new_ng(0, 0, 0), self.bounds()))
-		} else {
-			self.sectors().get(path)
-				.map(|x| x.clone())
-		}
+	pub fn get_sector(&self, name: &String) -> Option<&SlotSector> {
+		self.sectors().get(name)
 	}
 
-	pub fn bind_sector(&mut self, name: String, pos: Point, bounds: Bounds) -> Result<(), SlotError> {
-		// Check that there is no already existing slot with such name.
-		if self.sectors().get(&name).is_some() {
-			return Err(SlotError::NameIsAlreadyTaken {
-				main_slot_name: self.name.clone(),
-				subject_name: name,
-				comment: "Sector with such name was added before".to_string(),
-			});
-		}
-
+	pub fn bind_sector(&mut self, name: String, sector: SlotSector) -> Result<(), SlotError> {
 		if name.len() == 0 {
 			return Err(SlotError::NameIsAlreadyTaken {
 				main_slot_name: self.name.clone(),
@@ -113,7 +119,16 @@ impl Slot {
 			})
 		}
 
-		self.sectors_mut().insert(name, (pos, bounds));
+		// Check that there is no already existing slot with such name.
+		if self.sectors().get(&name).is_some() {
+			return Err(SlotError::NameIsAlreadyTaken {
+				main_slot_name: self.name.clone(),
+				subject_name: name,
+				comment: "Sector with such name was added before".to_string(),
+			});
+		}
+
+		self.sectors_mut().insert(name, sector);
 		Ok(())
 	}
 }

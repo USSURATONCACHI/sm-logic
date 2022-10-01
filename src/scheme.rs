@@ -1,6 +1,6 @@
 use crate::shape::Shape;
-use crate::slot::Slot;
-use crate::util::Bounds;
+use crate::slot::{Slot, SlotSector};
+use crate::util::{Bounds, split_first_token};
 use crate::util::Rot;
 use crate::util::Point;
 
@@ -47,16 +47,40 @@ impl Scheme {
 		&self.outputs
 	}
 
-	pub fn input<N>(&self, name: N) -> Option<&Slot>
+	pub fn input<N>(&self, name: N) -> Option<(&Slot, &SlotSector)>
 		where N: Into<String>
 	{
-		find_slot(name, self.inputs())
+		let (name, sector) = split_first_token(name.into());
+		let sector = match sector {
+			None => "".to_string(),
+			Some(sector) => sector,
+		};
+
+		match find_slot(name, self.inputs()) {
+			None => None,
+			Some(slot) => {
+				let sector = slot.get_sector(&sector);
+				sector.map(|sector| (slot, sector))
+			}
+		}
 	}
 
-	pub fn output<N>(&self, name: N) -> Option<&Slot>
+	pub fn output<N>(&self, name: N) -> Option<(&Slot, &SlotSector)>
 		where N: Into<String>
 	{
-		find_slot(name, self.outputs())
+		let (name, sector) = split_first_token(name.into());
+		let sector = match sector {
+			None => "".to_string(),
+			Some(sector) => sector,
+		};
+
+		match find_slot(name, self.outputs()) {
+			None => None,
+			Some(slot) => {
+				let sector = slot.get_sector(&sector);
+				sector.map(|sector| (slot, sector))
+			}
+		}
 	}
 
 	pub fn shapes_count(&self) -> usize {
