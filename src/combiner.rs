@@ -1,24 +1,27 @@
 use std::collections::HashMap;
-use crate::bind::Bind;
+use std::fmt::Debug;
+use crate::bind::{Bind, InvalidConn};
 use crate::combiner::CombinerError::SchemeNameWasAlreadyTaken;
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::positioner::{ManualPos, Positioner};
 use crate::scheme::Scheme;
+use crate::shape::Shape;
 use crate::slot::Slot;
-use crate::util::split_first_token;
+use crate::util::{Point, Rot, split_first_token};
 
 #[derive(Debug, Clone)]
 pub struct Warns {
 	pub invalid_conns: Vec<ConnCase>,
-	// Input or Output, name, target path, new_kind
-	pub non_existent_passes: Vec<(SlotSide, String, String, Option<String>)>
+	pub invalid_inp_bind_conns: Vec<InvalidConn>,
+	pub invalid_out_bind_conns: Vec<InvalidConn>,
 }
 
 impl Warns {
 	pub fn new() -> Self {
 		Warns {
 			invalid_conns: vec![],
-			non_existent_passes: vec![],
+			invalid_inp_bind_conns: vec![],
+			invalid_out_bind_conns: vec![],
 		}
 	}
 }
@@ -59,6 +62,10 @@ pub enum CombinerError {
 		side: SlotSide,
 		failed_to_add: Bind,
 	},
+
+	PositionerError {
+		error: Box<dyn Debug>,
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -347,8 +354,51 @@ fn parse_pass_data(name: String, path: String, new_kind: &Option<String>)
 }
 
 impl<P: Positioner> Combiner<P> {
-	pub fn compile(self) -> Result<(Scheme, Warns), Vec<CombinerError>> {
-		todo!()
+	// TODO: maybe replace CombinerError with Box<dyn Debug>
+	pub fn compile(mut self) -> Result<(Scheme, Warns), CombinerError> {
+		// Placing schemes
+		let schemes = self.positioner.arrange(self.schemes)
+			.map_err(|err| CombinerError::PositionerError {
+				error: Box::new(err)
+			})?;
+
+		let mut inputs_map: HashMap<String, (usize, Vec<Slot>)> = HashMap::new();
+		let mut outputs_map: HashMap<String, (usize, Vec<Slot>)> = HashMap::new();
+
+		let mut shapes: Vec<(Point, Rot, Shape)> = Vec::new();
+
+		// Combining all schemes into new one
+		for (name, (pos, rot, scheme)) in schemes {
+			let (scheme_shapes, scheme_inps, scheme_outps) = scheme.disassemble(pos, rot);
+			let start_shape = shapes.len();
+			inputs_map.insert(name.clone(), (start_shape, scheme_inps));
+			outputs_map.insert(name.clone(), (start_shape, scheme_outps));
+			shapes.extend(scheme_shapes)
+		}
+
+		// Compiling input binds
+		let mut inputs: Vec<Slot> = self.inputs.into_iter()
+			.map(|bind| bind.compile(&inputs_map, SlotSide::Input))
+			.map(|(slot, invalid)| {
+				self.warns.invalid_inp_bind_conns.extend(invalid);
+				slot
+			})
+			.collect();
+
+		// Compiling output binds
+		let mut outputs: Vec<Slot> = self.inputs.into_iter()
+			.map(|bind| bind.compile(&inputs_map, SlotSide::Input))
+			.map(|(slot, invalid)| {
+				self.warns.invalid_out_bind_conns.extend(invalid);
+				slot
+			})
+			.collect();
+
+		// Compiling all the connections
+		for conn in self.connections {
+			
+		}
+		;todo!()
 	}
 }
 

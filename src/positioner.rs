@@ -5,7 +5,7 @@ use crate::scheme::Scheme;
 use crate::util::{Point, Rot};
 
 pub trait Positioner: Debug + Clone {
-	type Error;
+	type Error: Debug;
 
 	fn set_last_scheme(&mut self, scheme_name: String);
 	fn arrange(self, schemes: HashMap<String, Scheme>) -> Result<HashMap<String, (Point, Rot, Scheme)>, Self::Error>;

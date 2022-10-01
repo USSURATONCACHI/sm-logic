@@ -6,6 +6,7 @@ use crate::slot::{Slot, SlotSector};
 use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, split_first_token};
 
 
+#[derive(Debug, Clone)]
 pub enum InvalidConn {
 	TargetSchemeDoesNotExists {
 		sector: BasicBind,
@@ -154,7 +155,7 @@ impl Bind {
 
 impl Bind {
 	// 										name, start shape, slots
-	pub fn compile(self, schemes: &HashMap<String, (usize, &Vec<Slot>)>, side: SlotSide)
+	pub fn compile(self, schemes: &HashMap<String, (usize, Vec<Slot>)>, side: SlotSide)
 		-> (Slot, Vec<InvalidConn>)
 	{
 		let mut map: Map3D<Vec<usize>> = Map3D::new(self.bounds().cast().tuple(), vec![]);
@@ -208,7 +209,7 @@ impl Bind {
 	}
 }
 
-fn compile_get_slot<'a>(sector: &BasicBind, schemes: &HashMap<String, (usize, &'a Vec<Slot>)>)
+fn compile_get_slot<'a>(sector: &BasicBind, schemes: &HashMap<String, (usize, Vec<Slot>)>)
 	-> Result<(usize, &'a Slot, &'a SlotSector), InvalidConn>
 {
 	let target = sector.target.clone();

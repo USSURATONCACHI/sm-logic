@@ -90,6 +90,17 @@ impl Scheme {
 	pub fn bounds(&self) -> Bounds {
 		self.bounds.clone()
 	}
+
+	pub fn disassemble(mut self, pos: Point, rot: Rot) -> (Vec<(Point, Rot, Shape)>, Vec<Slot>, Vec<Slot>) {
+		let (start, _) = self.calculate_bounds();
+
+		for (shape_pos, shape_rot, _) in &mut self.shapes {
+			*shape_rot = rot.apply_to_rot(shape_rot.clone());
+			*shape_pos = pos - start + rot.apply(shape_pos.clone());
+		}
+
+		(self.shapes, self.inputs, self.outputs)
+	}
 }
 
 impl Scheme {
