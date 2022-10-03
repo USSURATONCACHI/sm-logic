@@ -177,21 +177,26 @@ impl Bind {
 				SlotSide::Input => sector.conn
 					.connect(sector.sector_size, slot_sector.bounds)
 					.into_iter()
-					.map(|(from, to)| (from + sector.sector_corner, to  + slot_sector.pos))
+					.map(|(from, to)| (from, to))
 					.collect(),
 
 				SlotSide::Output => sector.conn
 					.connect(slot_sector.bounds, sector.sector_size)
 					.into_iter()
-					.map(|(from, to)| (to + slot_sector.pos, from + sector.sector_corner))
+					.map(|(from, to)| (to, from))
 					.collect(),
 			};
 
 			for (from_this, to_slot) in p2p_conns {
 				if !is_point_in_bounds(from_this, sector.sector_size) ||
-					!is_point_in_bounds(to_slot, slot_sector.bounds) {
+					!is_point_in_bounds(sector.sector_corner + from_this, self.size) ||
+					!is_point_in_bounds(to_slot, slot_sector.bounds) ||
+					!is_point_in_bounds(slot_sector.pos + to_slot, slot.bounds())
+				{
 					continue;
 				}
+				let from_this = from_this + sector.sector_corner;
+				let to_slot = to_slot + slot_sector.pos;
 
 				let to_slot_shapes = slot.get_point(to_slot)
 					.unwrap()
