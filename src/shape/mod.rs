@@ -3,8 +3,10 @@ pub mod vanilla;
 use std::fmt::Debug;
 use dyn_clone::DynClone;
 use json::{JsonValue, object};
+use crate::scheme::{DEFAULT_SLOT, Scheme};
+use crate::slot::Slot;
 
-use crate::util::Point;
+use crate::util::{Map3D, Point};
 use crate::util::Rot;
 use crate::util::Bounds;
 
@@ -74,6 +76,24 @@ impl Shape {
 		};
 
 		self.base.build(data)
+	}
+}
+
+impl Into<Scheme> for Shape {
+	fn into(self) -> Scheme {
+		let slot_map: Map3D<Vec<usize>> = Map3D::filled((1, 1, 1), vec![0_usize]);
+		let slot = Slot::new(
+			DEFAULT_SLOT.to_string(),
+			"logic".to_string(),
+			Bounds::new_ng(1, 1, 1),
+			slot_map.clone()
+		);
+
+		Scheme::create(
+			vec![(Point::new_ng(0, 0, 0), Rot::new(0, 0, 0), self)],
+			vec![slot.clone()],
+			vec![slot],
+		)
 	}
 }
 

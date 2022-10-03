@@ -107,7 +107,7 @@ impl<P: Positioner> Combiner<P> {
 			});
 		}
 
-		if self.schemes.get(&name).is_some() {
+		if self.schemes.get(&name).is_none() {
 			self.schemes.insert(name.clone(), scheme.into());
 			self.pos().set_last_scheme(name);
 			Ok(())
@@ -188,6 +188,36 @@ impl<P: Positioner> Combiner<P> {
 				P2: Into<String>,
 	{
 		self.custom(from, to, ConnDim::new(adapt_axes))
+	}
+
+	pub fn custom_iter<I1, I2, P1, P2>(&mut self, from: I1, to: I2, conn: Box<dyn Connection>)
+		where P1: Into<String>, I1: IntoIterator<Item = P1>,
+			  P2: Into<String>, I2: IntoIterator<Item = P2>,
+	{
+		let to: Vec<String> = to.into_iter()
+			.map(|x| x.into())
+			.collect();
+
+		for from_path in from {
+			let from_path = from_path.into();
+			for to_path in &to {
+				self.custom(from_path.clone(), to_path, conn.clone())
+			}
+		}
+	}
+
+	pub fn connect_iter<I1, I2, P1, P2>(&mut self, from: I1, to: I2)
+		where P1: Into<String>, I1: IntoIterator<Item = P1>,
+			  P2: Into<String>, I2: IntoIterator<Item = P2>,
+	{
+		self.custom_iter(from, to, ConnStraight::new())
+	}
+
+	pub fn dim_iter<I1, I2, P1, P2>(&mut self, from: I1, to: I2, adapt_axes: (bool, bool, bool))
+		where P1: Into<String>, I1: IntoIterator<Item = P1>,
+			  P2: Into<String>, I2: IntoIterator<Item = P2>,
+	{
+		self.custom_iter(from, to, ConnDim::new(adapt_axes))
 	}
 }
 

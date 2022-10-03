@@ -87,6 +87,10 @@ impl Scheme {
 		self.shapes.len()
 	}
 
+	pub fn shapes(&self) -> &Vec<(Point, Rot, Shape)> {
+		&self.shapes
+	}
+
 	pub fn bounds(&self) -> Bounds {
 		self.bounds.clone()
 	}

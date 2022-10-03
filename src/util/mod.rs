@@ -7,6 +7,9 @@ pub use vec3::Vec3;
 pub use map3d::Map3D;
 pub use rot::*;
 pub use mat3::Mat3x3;
+use crate::scheme::Scheme;
+use crate::shape::Shape;
+use crate::shape::vanilla::Gate;
 
 pub type Bounds = Vec3<u32>;
 pub type Point = Vec3<i32>;
@@ -35,6 +38,19 @@ impl GateMode {
 			GateMode::NOR => 4,
 			GateMode::XNOR => 5,
 		}
+	}
+}
+
+impl Into<Shape> for GateMode {
+	fn into(self) -> Shape {
+		Gate::new(self)
+	}
+}
+
+impl Into<Scheme> for GateMode {
+	fn into(self) -> Scheme {
+		let shape: Shape = self.into();
+		shape.into()
 	}
 }
 
