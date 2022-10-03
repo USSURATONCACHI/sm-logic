@@ -209,7 +209,7 @@ impl Bind {
 	}
 }
 
-fn compile_get_slot<'a>(sector: &BasicBind, schemes: &HashMap<String, (usize, Vec<Slot>)>)
+fn compile_get_slot<'a>(sector: &BasicBind, schemes: &'a HashMap<String, (usize, Vec<Slot>)>)
 	-> Result<(usize, &'a Slot, &'a SlotSector), InvalidConn>
 {
 	let target = sector.target.clone();

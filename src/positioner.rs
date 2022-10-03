@@ -82,6 +82,7 @@ impl ManualPos {
 	}
 }
 
+#[derive(Clone, Debug)]
 pub enum ManualPosError {
 	SchemeIsNotPlaced { name: String },
 	SchemeHasNoPosition { name: String },
