@@ -1,5 +1,6 @@
 use sm_logic::combiner::*;
 use sm_logic::util::GateMode::{AND, OR};
+use sm_logic::util::Rot;
 
 fn main() {
 	let mut combiner = Combiner::pos_manual();
@@ -8,7 +9,8 @@ fn main() {
 	combiner.pos().place_last((0, 0, 0));
 
 	combiner.add("b", OR).unwrap();
-	combiner.pos().place_last((0, 0, 1));
+	combiner.pos().place_last((0, 0, 2));
+	combiner.pos().rotate("b", (2, 0, 0));
 
 	combiner.connect_iter(["a"], ["a", "b"]);
 	combiner.connect("b", "a");

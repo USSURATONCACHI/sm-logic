@@ -210,3 +210,27 @@ fn facing_to_rot_test() {
 	let neg_z = Facing::NegZ.to_rot().apply(vec.clone());
 	assert_eq!(Vec3::new_ng(0_i32, 0, -1), neg_z);
 }
+
+impl<N1, N2, N3> Into<Rot> for (N1, N2, N3)
+	where N1: IntoNumber, N2: IntoNumber, N3: IntoNumber
+{
+	fn into(self) -> Rot {
+		Rot::new(self.0.into_number(), self.1.into_number(), self.2.into_number())
+	}
+}
+
+trait IntoNumber {
+	fn into_number(self) -> i32;
+}
+
+impl IntoNumber for i8 		{ fn into_number(self) -> i32 { self as i32 } }
+impl IntoNumber for i16 	{ fn into_number(self) -> i32 { self as i32 } }
+impl IntoNumber for i32 	{ fn into_number(self) -> i32 { self } }
+impl IntoNumber for i64 	{ fn into_number(self) -> i32 { self as i32 } }
+impl IntoNumber for i128 	{ fn into_number(self) -> i32 { self as i32 } }
+
+impl IntoNumber for u8 		{ fn into_number(self) -> i32 { self as i32 } }
+impl IntoNumber for u16 	{ fn into_number(self) -> i32 { self as i32 } }
+impl IntoNumber for u32 	{ fn into_number(self) -> i32 { self as i32 } }
+impl IntoNumber for u64 	{ fn into_number(self) -> i32 { self as i32 } }
+impl IntoNumber for u128 	{ fn into_number(self) -> i32 { self as i32 } }
