@@ -35,11 +35,16 @@ impl<T> Map3D<T> {
 	pub fn new<I>(size: (usize, usize, usize), data: I) -> Self
 		where I: IntoIterator<Item = T>
 	{
+		let data: Vec<T> = data.into_iter().collect();
+		if data.len() != (size.0 * size.1 * size.2) {
+			panic!("Data array does not have right size ({})", (size.0 * size.1 * size.2));
+		}
+
 		Map3D {
 			x_size: size.0,
 			y_size: size.1,
 			z_size: size.2,
-			data: data.into_iter().collect()
+			data,
 		}
 	}
 

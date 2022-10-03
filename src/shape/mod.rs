@@ -58,6 +58,10 @@ impl Shape {
 		self.color = Some(color.into());
 	}
 
+	pub fn connections_mut(&mut self) -> &mut Vec<usize> {
+		&mut self.out_conns
+	}
+
 	pub fn bounds(&self) -> Bounds {
 		self.base.size()
 	}

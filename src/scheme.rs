@@ -98,12 +98,16 @@ impl Scheme {
 		self.bounds.clone()
 	}
 
-	pub fn disassemble(mut self, pos: Point, rot: Rot) -> (Vec<(Point, Rot, Shape)>, Vec<Slot>, Vec<Slot>) {
+	pub fn disassemble(mut self, start_shape: usize, pos: Point, rot: Rot) -> (Vec<(Point, Rot, Shape)>, Vec<Slot>, Vec<Slot>) {
 		let (start, _) = self.calculate_bounds();
 
-		for (shape_pos, shape_rot, _) in &mut self.shapes {
+		for (shape_pos, shape_rot, shape) in &mut self.shapes {
 			*shape_rot = rot.apply_to_rot(shape_rot.clone());
 			*shape_pos = pos - start + rot.apply(shape_pos.clone());
+
+			for connection in shape.connections_mut() {
+				*connection += start_shape;
+			}
 		}
 
 		(self.shapes, self.inputs, self.outputs)

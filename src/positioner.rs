@@ -40,6 +40,14 @@ impl ManualPos {
 		*pos = Some(pos_at);
 	}
 
+	pub fn place_iter<I, S, P>(&mut self, pairs: I)
+		where S: Into<String>, P: Into<Point>, I: IntoIterator<Item = (S, P)>
+	{
+		for (scheme, pos) in pairs {
+			self.place(scheme, pos);
+		}
+	}
+
 	pub fn place_last<P>(&mut self, at: P)
 		where P: Into<Point>
 	{
@@ -61,6 +69,14 @@ impl ManualPos {
 			.unwrap();
 
 		*rot = rot_by.apply_to_rot(rot.clone());
+	}
+
+	pub fn rotate_iter<I, S, R>(&mut self, pairs: I)
+		where S: Into<String>, R: Into<Rot>, I: IntoIterator<Item = (S, R)>
+	{
+		for (scheme, rot) in pairs {
+			self.rotate(scheme, rot);
+		}
 	}
 
 	pub fn rotate_last<R>(&mut self, by: R)

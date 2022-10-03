@@ -370,8 +370,8 @@ impl<P: Positioner> Combiner<P> {
 
 		// Combining all schemes into new one
 		for (name, (pos, rot, scheme)) in schemes {
-			let (scheme_shapes, scheme_inps, scheme_outps) = scheme.disassemble(pos, rot);
 			let start_shape = shapes.len();
+			let (scheme_shapes, scheme_inps, scheme_outps) = scheme.disassemble(start_shape, pos, rot);
 			inputs_map.insert(name.clone(), (start_shape, scheme_inps));
 			outputs_map.insert(name.clone(), (start_shape, scheme_outps));
 			shapes.extend(scheme_shapes)

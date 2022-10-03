@@ -158,7 +158,7 @@ impl Bind {
 	pub fn compile(self, schemes: &HashMap<String, (usize, Vec<Slot>)>, side: SlotSide)
 		-> (Slot, Vec<InvalidConn>)
 	{
-		let mut map: Map3D<Vec<usize>> = Map3D::new(self.bounds().cast().tuple(), vec![]);
+		let mut map: Map3D<Vec<usize>> = Map3D::filled(self.bounds().cast().tuple(), vec![]);
 		let mut errors: Vec<InvalidConn> = vec![];
 
 		for sector in self.maps {
