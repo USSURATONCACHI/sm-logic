@@ -1,6 +1,9 @@
+use json::{JsonValue, object};
 use crate::shape::Shape;
 use crate::slot::{Slot, SlotSector};
-use crate::util::{Bounds, split_first_token};
+use crate::util;
+use crate::util::Bounds;
+use crate::util::split_first_token;
 use crate::util::Rot;
 use crate::util::Point;
 
@@ -104,6 +107,43 @@ impl Scheme {
 		}
 
 		(self.shapes, self.inputs, self.outputs)
+	}
+
+	pub fn to_json(mut self) -> JsonValue {
+		let mut array: Vec<JsonValue> = Vec::new();
+
+		for (i, bind) in self.inputs.into_iter().enumerate() {
+			for vec in bind.shape_map().as_raw() {
+				for id in vec {
+					let (_, _, shape) = &mut self.shapes[*id];
+					shape.set_color(util::get_input_color(i));
+				}
+			}
+		}
+
+		for (i, bind) in self.outputs.into_iter().enumerate() {
+			for vec in bind.shape_map().as_raw() {
+				for id in vec {
+					let (_, _, shape) = &mut self.shapes[*id];
+					shape.set_color(util::get_output_color(i));
+				}
+			}
+		}
+
+		for (i, (pos, rot, shape)) in self.shapes.into_iter().enumerate() {
+			array.push(shape.build(pos, rot, i));
+		}
+
+		let array = JsonValue::Array(array);
+		let mut obj = object!{
+			"bodies": [
+				{
+				}
+			],
+			"version": 4_i32
+		};
+		obj["bodies"][0]["childs"] = array;
+		obj
 	}
 }
 

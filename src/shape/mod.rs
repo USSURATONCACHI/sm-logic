@@ -54,6 +54,10 @@ impl Shape {
 		self.out_conns.extend(controller_ids);
 	}
 
+	pub fn set_color<S: Into<String>>(&mut self, color: S) {
+		self.color = Some(color.into());
+	}
+
 	pub fn bounds(&self) -> Bounds {
 		self.base.size()
 	}

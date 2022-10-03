@@ -33,6 +33,11 @@ fn main() {
 			for (pos, _, shape) in scheme.shapes() {
 				println!("\tpos {:?} - {:?}", pos.tuple_ref(), shape);
 			}
+
+			println!("Writing to json...");
+			let json = scheme.to_json().to_string();
+			std::fs::write(r#"C:\Users\redch\AppData\Roaming\Axolot Games\Scrap Mechanic\User\User_76561198288016737\Blueprints\e153cd62-9736-409c-be41-0921439f3848/blueprint.json"#, json).unwrap();
+			println!("Done");
 		}
 	}
 }

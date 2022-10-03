@@ -17,6 +17,28 @@ pub type Point = Vec3<i32>;
 
 pub const TICKS_PER_SECOND: u32 = 40;
 
+pub const INPUTS_PALETTE: [&str; 4] = [
+	"0A3EE2",
+	"D02525",
+	"7514ED",
+	"CF11D2",
+];
+
+pub const OUTPUTS_PALETTE: [&str; 4] = [
+	"19E753",
+	"A0EA00",
+	"68FF88",
+	"CBF66F",
+];
+
+pub fn get_input_color(input_id: usize) -> String {
+	INPUTS_PALETTE[input_id % INPUTS_PALETTE.len()].to_string()
+}
+
+pub fn get_output_color(input_id: usize) -> String {
+	OUTPUTS_PALETTE[input_id % OUTPUTS_PALETTE.len()].to_string()
+}
+
 
 #[derive(Debug, Clone, Copy)]
 pub enum GateMode {
