@@ -96,8 +96,9 @@ pub fn split_first_token(path: String) -> (String, Option<String>) {
 		None => (path, None),
 		Some(pos) => {
 			let (_, tail) = path.split_at(pos + 1);
+			let (token, _) = path.split_at(pos);
 			let tail = tail.to_string();
-			(path, Some(tail))
+			(token.to_string(), Some(tail))
 		}
 	}
 }

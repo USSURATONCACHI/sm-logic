@@ -9,7 +9,19 @@ fn main() {
 	match adder(8).compile() {
 		Err(e) => println!("Fail: {:?}", e),
 		Ok((scheme, invalid_acts)) => {
-			println!("Invalid: {:?}", invalid_acts);
+			println!("\nInvalid conns:");
+			for conn in invalid_acts.connections {
+				println!("\t{:?}", conn);
+			}
+			println!("\nInvalid inputs:");
+			for (name, conn) in invalid_acts.inp_bind_conns {
+				println!("\t{} - {:?}", name, conn);
+			}
+			println!("\nInvalid outputs:");
+			for (name, conn) in invalid_acts.out_bind_conns {
+				println!("\t{} - {:?}", name, conn);
+			}
+
 			println!("Success.");
 			println!("Shapes count: {}", scheme.shapes_count());
 			println!("Inputs:");
@@ -22,10 +34,10 @@ fn main() {
 				println!("\t{} - {:?}", inp.name(), inp.bounds().tuple());
 			}
 
-			println!("\nShapes:");
+			/*println!("\nShapes:");
 			for (pos, _, shape) in scheme.shapes() {
 				println!("\tpos {:?} - {:?}", pos.tuple_ref(), shape);
-			}
+			}*/
 
 			println!("Writing to json...");
 			let json = scheme.to_json().to_string();

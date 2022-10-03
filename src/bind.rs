@@ -212,6 +212,7 @@ impl Bind {
 fn compile_get_slot<'a>(sector: &BasicBind, schemes: &'a HashMap<String, (usize, Vec<Slot>)>)
 	-> Result<(usize, &'a Slot, &'a SlotSector), InvalidConn>
 {
+
 	let target = sector.target.clone();
 	let (target_scheme, slot) = split_first_token(target);
 	let slot = match slot {
@@ -224,6 +225,8 @@ fn compile_get_slot<'a>(sector: &BasicBind, schemes: &'a HashMap<String, (usize,
 		None => "".to_string(),
 		Some(slot_sector) => slot_sector,
 	};
+
+	//println!("Target: '{}', Scheme: '{}', Slot: '{}', Sector: '{}'", target, target_scheme, slot_name, slot_sector);
 
 	let (start_shape, slots) = match schemes.get(&target_scheme) {
 		None => {
