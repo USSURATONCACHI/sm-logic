@@ -153,7 +153,7 @@ impl Scheme {
 
 impl Scheme {
 	// start, size
-	pub fn calculate_bounds(&self) -> (Point, Bounds) {
+	fn calculate_bounds(&self) -> (Point, Bounds) {
 		if self.shapes.len() == 0 {
 			return ((0, 0, 0).into(), (0, 0, 0).into());
 		}

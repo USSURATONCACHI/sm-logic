@@ -4,13 +4,28 @@ use crate::positioner::ManualPosError::{SchemeHasNoPosition, SchemeIsNotPlaced};
 use crate::scheme::Scheme;
 use crate::util::{Point, Rot};
 
+/// `Positioner` is an object, that gives each `Combiner`'s scheme a
+/// position.
+///
+/// This is done using traits for customization possibilities.
+///
+/// Right now only [`ManualPos`] is implemented.
+/// But I or you can create some logic to distribute `Scheme`s
+/// automatically. Or pretty much any other position logic.
 pub trait Positioner: Debug + Clone {
 	type Error: Debug;
 
+	/// This function is called by `Combiner` and the name of the last
+	/// added `Scheme` is passed.
 	fn set_last_scheme(&mut self, scheme_name: String);
+
+	/// Converts HashMap<String, Scheme> to HashMap<String, (Point, Rot, Scheme)> -
+	/// assigns physical positions and rotations to each of the schemes.
 	fn arrange(self, schemes: HashMap<String, Scheme>) -> Result<HashMap<String, (Point, Rot, Scheme)>, Self::Error>;
 }
 
+/// [`Positioner`] with fully manual position management.
+/// If any of the schemes is not positioned - error will be returned.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ManualPos {
@@ -26,6 +41,7 @@ impl ManualPos {
 		}
 	}
 
+	/// Places scheme with equal name to the given position.
 	pub fn place<S, P>(&mut self, name: S, at: P)
 		where S: Into<String>,
 				P: Into<Point>
@@ -40,6 +56,9 @@ impl ManualPos {
 		*pos = Some(pos_at);
 	}
 
+	/// Places multiple schemes to the given position.
+	/// '`Pairs`' should be an iterable of pairs in format
+	/// '`(name, position)`'
 	pub fn place_iter<I, S, P>(&mut self, pairs: I)
 		where S: Into<String>, P: Into<Point>, I: IntoIterator<Item = (S, P)>
 	{
@@ -48,6 +67,8 @@ impl ManualPos {
 		}
 	}
 
+	/// Places last added scheme to the given position. If no schemes
+	/// were added before - panics.
 	pub fn place_last<P>(&mut self, at: P)
 		where P: Into<Point>
 	{
@@ -57,6 +78,7 @@ impl ManualPos {
 		}
 	}
 
+	/// Rotates given scheme by given angle ([`Rot`])
 	pub fn rotate<S, R>(&mut self, name: S, by: R)
 		where S: Into<String>,
 				R: Into<Rot>,
@@ -71,6 +93,7 @@ impl ManualPos {
 		*rot = rot_by.apply_to_rot(rot.clone());
 	}
 
+	/// Applies self.rotate method to each pair of (name, rot) pairs.
 	pub fn rotate_iter<I, S, R>(&mut self, pairs: I)
 		where S: Into<String>, R: Into<Rot>, I: IntoIterator<Item = (S, R)>
 	{
@@ -79,6 +102,8 @@ impl ManualPos {
 		}
 	}
 
+	/// Rotates last added scheme by given angle ([`Rot`]). If no
+	/// schemes were added - panics.
 	pub fn rotate_last<R>(&mut self, by: R)
 		where R: Into<Rot>,
 	{

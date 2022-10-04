@@ -7,6 +7,7 @@ pub use vec3::Vec3;
 pub use map3d::Map3D;
 pub use rot::*;
 pub use mat3::Mat3x3;
+
 use crate::scheme::Scheme;
 use crate::shape::Shape;
 use crate::shape::vanilla::Gate;
@@ -14,9 +15,9 @@ use crate::shape::vanilla::Gate;
 pub type Bounds = Vec3<u32>;
 pub type Point = Vec3<i32>;
 
-
 pub const TICKS_PER_SECOND: u32 = 40;
 
+/// Temporary list of color of inputs.
 pub const INPUTS_PALETTE: [&str; 4] = [
 	"0A3EE2",
 	"D02525",
@@ -24,6 +25,7 @@ pub const INPUTS_PALETTE: [&str; 4] = [
 	"CF11D2",
 ];
 
+/// Temporary list of color of outputs.
 pub const OUTPUTS_PALETTE: [&str; 4] = [
 	"19E753",
 	"A0EA00",
@@ -38,7 +40,6 @@ pub fn get_input_color(input_id: usize) -> String {
 pub fn get_output_color(input_id: usize) -> String {
 	OUTPUTS_PALETTE[input_id % OUTPUTS_PALETTE.len()].to_string()
 }
-
 
 #[derive(Debug, Clone, Copy)]
 pub enum GateMode {

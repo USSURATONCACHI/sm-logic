@@ -8,7 +8,7 @@ use crate::scheme;
 use crate::scheme::Scheme;
 use crate::shape::Shape;
 use crate::slot::{Slot, SlotSector};
-use crate::util::{is_point_in_bounds, Point, Rot, split_first_token};
+use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, Rot, split_first_token};
 
 #[derive(Debug, Clone)]
 pub struct InvalidActs {
@@ -339,6 +339,41 @@ impl<P: Positioner> Combiner<P> {
 		let mut bind = Bind::new(name, kind, sector.bounds);
 		bind.connect_full(path);
 		Ok(bind)
+	}
+}
+
+impl<P: Positioner> Combiner<P> {
+	pub fn create_slot_scheme<N, K, B, S, R>(&mut self, name: N,
+				  slot_kind: K, bounds: B, from_shape: S, shape_rot: R)
+		-> Result<(), Error>
+		where N: Into<String>, K: Into<String>, B: Into<Bounds>, S: Into<Shape>, R: Into<Rot>
+	{
+		let main_shape = from_shape.into();
+		let shape_rot = shape_rot.into();
+		let mut shapes: Vec<(Point, Rot, Shape)> = vec![];
+
+		let bounds = bounds.into();
+		let bounds_tuple = bounds.tuple();
+		let mut map: Map3D<Vec<usize>> = Map3D::filled(bounds.cast().tuple(), vec![]);
+
+		for x in 0..bounds_tuple.0 {
+			for y in 0..bounds_tuple.1 {
+				for z in 0..bounds_tuple.2 {
+					let pos = Point::new(x as i32, y as i32, z as i32);
+					shapes.push((pos * main_shape.bounds().cast(), shape_rot.clone(), main_shape.clone()));
+
+					let id = x + y * bounds_tuple.0 + z * bounds_tuple.0 * bounds_tuple.1;
+					map.get_mut((x as usize, y as usize, z as usize))
+						.unwrap()
+						.push(id as usize);
+				}
+			}
+		}
+
+		let slot = Slot::new("_".to_string(), slot_kind.into(), bounds, map);
+		let scheme = Scheme::create(shapes, vec![slot.clone()], vec![slot]);
+
+		self.add(name, scheme)
 	}
 }
 

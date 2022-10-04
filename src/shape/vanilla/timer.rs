@@ -1,4 +1,5 @@
 use json::{JsonValue, object};
+use crate::scheme::Scheme;
 use crate::shape::{out_conns_to_controller, Shape, ShapeBase, ShapeBuildData};
 use crate::util::{Bounds, TICKS_PER_SECOND};
 
@@ -6,7 +7,15 @@ use crate::util::{Bounds, TICKS_PER_SECOND};
 pub const DEFAULT_TIMER_COLOR: &str = "df7f00";
 pub const TIMER_UUID: &str = "8f7fd0e7-c46e-4944-a414-7ce2437bb30f";
 
-
+/// Represents "Timer" from scrap mechanic.
+///
+/// # Example
+/// ```
+/// # use crate::sm_logic::shape::vanilla::Timer;
+/// // 10 seconds + 10 ticks
+/// let timer_a = Timer::new(410);
+/// let timer_b = Timer::from_time(10, 10);
+/// ```
 #[derive(Debug, Clone)]
 pub struct Timer {
 	seconds: u32,
@@ -72,5 +81,18 @@ impl ShapeBase for Timer {
 
 	fn has_output(&self) -> bool {
 		true
+	}
+}
+
+impl Into<Shape> for Timer {
+	fn into(self) -> Shape {
+		Shape::new(Box::new(self))
+	}
+}
+
+impl Into<Scheme> for Timer {
+	fn into(self) -> Scheme {
+		let shape: Shape = self.into();
+		shape.into()
 	}
 }

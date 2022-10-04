@@ -8,7 +8,7 @@ use sm_logic::util::GateMode::{AND, OR, XOR};
 use sm_logic::util::Facing;
 
 fn main() {
-	match memory(8, (4, 4, 4)).compile() {
+	match test().compile() {
 		Err(e) => println!("Fail: {:?}", e),
 		Ok((scheme, invalid_acts)) => {
 			println!("\nInvalid conns:");
@@ -38,7 +38,7 @@ fn main() {
 
 			println!("Writing to json...");
 			let json = scheme.to_json().to_string();
-			std::fs::write(r#"C:\Users\redch\AppData\Roaming\Axolot Games\Scrap Mechanic\User\User_76561198288016737\Blueprints\e153cd62-9736-409c-be41-0921439f3848/blueprint.json"#, json).unwrap();
+			std::fs::write(r#"C:\Users\redch\AppData\Roaming\Axolot Games\Scrap Mechanic\User\User_76561198288016737\Blueprints\fd551543-b05e-487f-9db5-1583ffc826d0\blueprint.json"#, json).unwrap();
 			println!("Done");
 		}
 	}
@@ -59,26 +59,43 @@ fn test() -> Combiner<ManualPos> {
 
 	combiner
 }
-
+/*
 fn memory(word_size: u32, size: (u32, u32, u32)) -> Combiner<ManualPos> {
+	let cell = memory_cell(word_size);
+	let cell_size = cell.bounds().cast::<i32>();
+
+	//let cells_count = size.0 * size.1 * size.2;
+
 	let mut combiner = Combiner::pos_manual();
 
-	combiner.add("main", AND).unwrap();
-	combiner.pos().place_last((0, 0, 10));
-	combiner.pos().rotate_last(Facing::NegZ.to_rot());
+	// TODO: combiner.expand_slot(path, amount_of_slots, placer: Fn(id) -> position);
 
-	for x in 0..128 {
-		for y in 0..128 {
-			let name = format!("{}_{}", x, y);
-			combiner.add(&name, OR).unwrap();
-			combiner.pos().place_last((x, y, 0));
-			combiner.pos().rotate_last(Facing::PosZ.to_rot());
-			combiner.connect("main", name);
+	combiner.create_slot_scheme("write_data_inner", "binary", size, AND, Facing::NegX.to_rot()).unwrap();
+	combiner.pos().place_last((-(size.0 as i32), 0, size.2 as i32 + 1));
+
+	combiner.create_slot_scheme("write_data", "binary", size, OR, Facing::NegX.to_rot()).unwrap();
+	combiner.pos().place_last((-(size.0 as i32), 0, 0));
+
+	combiner.create_slot_scheme("read_data", "binary", size, OR, Facing::NegX.to_rot()).unwrap();
+	combiner.pos().place_last((-(size.0 as i32), (size.1 as i32) + 1, 0));
+
+	combiner.add("write", OR).unwrap();
+	combiner.pos().place_last((-(size.0 as i32), (size.1 as i32) * 2 + 2, 0));
+
+	for x in 0..size.0 {
+		for y in 0..size.1 {
+			for z in 0..size.2 {
+				let id = x + y * size.1 + z * size.2 * size.1;
+
+				let name = format!("{}", id);
+				combiner.add(&name, cell.clone()).unwrap();
+				combiner.pos().place_last(cell_size * Point::new(x as i32, y as i32, z as i32));
+			}
 		}
 	}
 
 	combiner
-}
+}*/
 
 fn memory_cell(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
@@ -206,3 +223,24 @@ fn adder_section() -> Scheme {
 	let (scheme, _) = s.compile().unwrap();
 	scheme
 }
+
+/*
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add("main", AND).unwrap();
+	combiner.pos().place_last((0, 0, 10));
+	combiner.pos().rotate_last(Facing::NegZ.to_rot());
+
+	for x in 0..128 {
+		for y in 0..128 {
+			let name = format!("{}_{}", x, y);
+			combiner.add(&name, OR).unwrap();
+			combiner.pos().place_last((x, y, 0));
+			combiner.pos().rotate_last(Facing::PosZ.to_rot());
+			combiner.connect("main", name);
+		}
+	}
+
+	combiner
+
+*/
