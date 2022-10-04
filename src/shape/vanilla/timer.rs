@@ -35,7 +35,6 @@ impl Timer {
 
 impl ShapeBase for Timer {
 	fn build(&self, data: ShapeBuildData) -> JsonValue {
-		// Opinion: Scrap mechanic xaxis/zaxis rotation system works awful
 		let (xaxis, zaxis, offset) = data.rot.to_sm_data();
 		let (x, y, z) = (data.pos + offset).tuple();
 

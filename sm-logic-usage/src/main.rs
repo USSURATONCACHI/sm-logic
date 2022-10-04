@@ -1,13 +1,14 @@
+#![allow(dead_code)]
+
 use sm_logic::bind::Bind;
 use sm_logic::combiner::*;
 use sm_logic::scheme::Scheme;
 use sm_logic::positioner::ManualPos;
-use sm_logic::shape::vanilla::Timer;
 use sm_logic::util::GateMode::{AND, OR, XOR};
 use sm_logic::util::Facing;
 
 fn main() {
-	match test().compile() {
+	match memory(8, (4, 4, 4)).compile() {
 		Err(e) => println!("Fail: {:?}", e),
 		Ok((scheme, invalid_acts)) => {
 			println!("\nInvalid conns:");
@@ -44,41 +45,97 @@ fn main() {
 }
 
 fn test() -> Combiner<ManualPos> {
+	let adder = adder(8);
 	let mut combiner = Combiner::pos_manual();
 
-	combiner.add(format!("_"), Timer::new(42)).unwrap();
-	combiner.pos().place_last((0, 0, 3));
+	for i in 0..4 {
+		combiner.add(format!("{}", i), adder.clone()).unwrap();
+		combiner.pos().place_last((0, 0, i * 2));
+		combiner.pos().rotate_last((0, 0, i));
+		combiner.pass_input(format!("{}_a", i), format!("{}/a", i), None as Option<String>).unwrap();
+		combiner.pass_input(format!("{}_b", i), format!("{}/b", i), None as Option<String>).unwrap();
+		combiner.pass_output(format!("{}", i), format!("{}", i), None as Option<String>).unwrap();
+	}
 
-	for x in 0..4 {
-		for y in 0..4 {
-			for z in 0..4 {
-				combiner.add(format!("{}_{}_{}", x, y, z), Timer::new(42)).unwrap();
-				combiner.pos().place_last(((x + y * 4 + z * 4 * 4) * 2, 0, 0));
-				combiner.pos().rotate_last((x, y, z));
-			}
+	combiner
+}
+
+fn memory(word_size: u32, size: (u32, u32, u32)) -> Combiner<ManualPos> {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add("main", AND).unwrap();
+	combiner.pos().place_last((0, 0, 10));
+	combiner.pos().rotate_last(Facing::NegZ.to_rot());
+
+	for x in 0..128 {
+		for y in 0..128 {
+			let name = format!("{}_{}", x, y);
+			combiner.add(&name, OR).unwrap();
+			combiner.pos().place_last((x, y, 0));
+			combiner.pos().rotate_last(Facing::PosZ.to_rot());
+			combiner.connect("main", name);
 		}
 	}
 
 	combiner
 }
 
-fn adder(word_size: u32) -> Scheme {
-	let section = section();
+fn memory_cell(word_size: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
 
-	// Создание сумматора из таких секций
+	let mut input_bind = Bind::new("data", "binary", (word_size, 1, 1));
+	let mut output_bind = Bind::new("_", "binary", (word_size, 1, 1));
+
+	for i in 0..word_size {
+		let input_name = format!("{}_input", i);
+		combiner.add(&input_name, AND).unwrap();
+		combiner.pos().place_last((0, 0, i as i32));
+		combiner.pos().rotate_last(Facing::NegY.to_rot());
+		combiner.connect("activate", &input_name);
+
+		input_bind.connect(((i as i32, 0, 0), (1, 1, 1)), &input_name);
+
+		let output_name = format!("{}_output", i);
+		combiner.add(&output_name, AND).unwrap();
+		combiner.pos().place_last((1, 0, i as i32));
+		combiner.pos().rotate_last(Facing::NegY.to_rot());
+		combiner.connect("activate", &output_name);
+
+		output_bind.connect(((i as i32, 0, 0), (1, 1, 1)), &output_name);
+
+		let xor_name = format!("{}_xor", i);
+		combiner.add(&xor_name, XOR).unwrap();
+		combiner.pos().place_last((2, 0, i as i32));
+		combiner.pos().rotate_last(Facing::NegY.to_rot());
+		combiner.connect(&xor_name, &xor_name);
+		combiner.connect(&input_name, &xor_name);
+		combiner.connect(&xor_name, &output_name);
+	}
+
+	combiner.add("activate", AND).unwrap();
+	combiner.pos().place_last((1, 0, word_size as i32));
+	combiner.pos().rotate_last(Facing::NegY.to_rot());
+	combiner.pass_input("activate", "activate", Some("logic")).unwrap();
+
+	combiner.bind_input(input_bind).unwrap();
+	combiner.bind_output(output_bind).unwrap();
+
+	let (scheme, _) = combiner.compile().unwrap();
+	scheme
+}
+
+fn adder(word_size: u32) -> Scheme {
+	let section = adder_section();
+
 	let mut adder = Combiner::pos_manual();
 
-	// Добавление энного количества секций и подключение выходов бита переноса
-	// ко входам битов переноса следующих секций
 	for i in 0..word_size {
 		adder.add(format!("{}", i), section.clone()).unwrap();
 		adder.pos().place_last((0, i as i32, 0));
 
-		// Последнее соединение (в несуществующий 17-тый модуль) просто отсеется
 		adder.connect(format!("{}", i), format!("{}", i+1));
 	}
 
-	// Бинд входа "а", размером (16, 1, 1) - в данном случае 16 бит сумматор
 	let mut bind = Bind::new("a", "binary", (word_size, 1u32, 1u32));
 	for x in 0..(word_size as i32) {
 		bind.connect(((x, 0, 0), (1, 1, 1)), format!("{}/a", x));
@@ -87,24 +144,19 @@ fn adder(word_size: u32) -> Scheme {
 
 	let mut bind = Bind::new("b", "binary", (word_size, 1u32, 1u32));
 	bind.connect_func(|x, _, _| Some(format!("{}/b", x)));
-	// Бинд второго входа
 	adder.bind_input(bind).unwrap();
 
-	// Бинд выхода (сумма двух)
 	let mut bind = Bind::new("_", "binary", (word_size, 1u32, 1u32));
 	bind.connect_func(|x, _, _| Some(format!("{}/res", x)));
 	adder.bind_output(bind).unwrap();
 
 	let (scheme, _) = adder.compile().unwrap();
 	scheme
-	//adder
 }
 
-fn section() -> Scheme {
-	// Создание секции сумматора
+fn adder_section() -> Scheme {
 	let mut s = Combiner::pos_manual();
 
-	// Создание именованных гейтов
 	s.add_mul(["a", "b", "_"], OR).unwrap();
 	s.add_mul(["and_1", "and_2", "and_3"], AND).unwrap();
 	s.add("res", XOR).unwrap();
@@ -123,44 +175,34 @@ fn section() -> Scheme {
 	s.pos().rotate("b", Facing::NegX.to_rot());
 	s.pos().rotate("res", Facing::PosX.to_rot());
 
-	// Биндинг - создание корреляции абстрактных входов "a", "b", "_"
-	// и непосредственно шейпов
-	// Бит 1
 	let mut bind = Bind::new("a", "bit", (1, 1, 1));
 	bind.connect_full("a");
 	s.bind_input(bind).unwrap();
 
-	// Бит 2
 	let mut bind = Bind::new("b", "bit", (1, 1, 1));
 	bind.connect_full("b");
 	s.bind_input(bind).unwrap();
 
-	// Бит переноса (вход)
 	let mut bind = Bind::new("_", "bit", (1, 1, 1));
 	bind.connect_full("_");
 	s.bind_input(bind).unwrap();
 
-	// Подключение гейтов "a", "b", "_" в гейт "res"
 	s.connect_iter(["a", "b", "_"], ["res"]);
 
 	s.connect_iter(["a"], ["and_1", "and_2"]);
 	s.connect_iter(["b"], ["and_2", "and_3"]);
 	s.connect_iter(["_"], ["and_3", "and_1"]);
 
-	// Биндинг выходов секции
-	// Бит переноса
 	let mut bind = Bind::new("_", "bit", (1, 1, 1));
 	bind.connect_full("and_1")
 		.connect_full("and_2")
 		.connect_full("and_3");
 	s.bind_output(bind).unwrap();
 
-	// Бит результата
 	let mut bind = Bind::new("res", "bit", (1, 1, 1));
 	bind.connect_full("res");
 	s.bind_output(bind).unwrap();
 
-	// Секция готова.
 	let (scheme, _) = s.compile().unwrap();
 	scheme
 }

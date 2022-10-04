@@ -81,8 +81,8 @@ pub fn is_point_in_bounds(point: Point, bounds: Bounds) -> bool {
 		*point.y() >= 0 &&
 		*point.z() >= 0 &&
 		*point.x() < (*bounds.x() as i32) &&
-		*point.y() < (*bounds.x() as i32) &&
-		*point.z() < (*bounds.x() as i32)
+		*point.y() < (*bounds.y() as i32) &&
+		*point.z() < (*bounds.z() as i32)
 }
 
 pub fn split_path(path: String) -> Vec<String> {

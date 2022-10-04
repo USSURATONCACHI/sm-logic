@@ -158,21 +158,24 @@ impl Scheme {
 			return ((0, 0, 0).into(), (0, 0, 0).into());
 		}
 
-		let (mut min_x, mut min_y, mut min_z) = (i32::MAX, i32::MAX, i32::MAX);
+		let mut min: Point = Point::new(i32::MAX, i32::MAX, i32::MAX);
 		let mut max: Point = Point::new(i32::MIN, i32::MIN, i32::MIN);
 
 		for (pos, rot, shape) in self.shapes.iter() {
 			let start = pos.clone();
-			let (br_x, br_y, br_z) = rot.apply(shape.bounds().cast()).tuple();
-			let end = pos.clone() + Point::new(br_x.abs(), br_y.abs(), br_z.abs());
 
-			if *start.x() < min_x { min_x = *start.x(); }
-			if *start.y() < min_y { min_y = *start.y(); }
-			if *start.z() < min_z { min_z = *start.z(); }
+			// Shapes are being rotated around BLOCK at (0, 0, 0) position.
+			// Not around corner of the block. And so, this "*2-1" is needed to
+			// rotate bounds around center of the first block.
+			let bounds = shape.bounds().cast::<i32>() * 2 - 1;
+			let bounds = (rot.apply(bounds) + 1) / 2;
+			let end = pos.clone() + bounds;
 
-			if *end.x() < min_x { min_x = *end.x(); }
-			if *end.y() < min_y { min_y = *end.y(); }
-			if *end.z() < min_z { min_z = *end.z(); }
+			min = fold_coords(
+				min,
+				[start, end],
+				|a, b| if a < b { a } else { b }
+			);
 
 			max = fold_coords(
 				max,
@@ -180,7 +183,6 @@ impl Scheme {
 				|a, b| if a > b { a } else { b }
 			);
 		}
-		let min = Point::new(min_x, min_y, min_z);
 
 		(min, (max - min).cast())
 	}
