@@ -153,23 +153,26 @@ impl Scheme {
 
 impl Scheme {
 	// start, size
-	fn calculate_bounds(&self) -> (Point, Bounds) {
+	pub fn calculate_bounds(&self) -> (Point, Bounds) {
 		if self.shapes.len() == 0 {
 			return ((0, 0, 0).into(), (0, 0, 0).into());
 		}
 
-		let mut min: Point = Point::new(i32::MAX, i32::MAX, i32::MAX);
+		let (mut min_x, mut min_y, mut min_z) = (i32::MAX, i32::MAX, i32::MAX);
 		let mut max: Point = Point::new(i32::MIN, i32::MIN, i32::MIN);
 
 		for (pos, rot, shape) in self.shapes.iter() {
 			let start = pos.clone();
-			let end = pos.clone() + rot.apply(shape.bounds().cast());
+			let (br_x, br_y, br_z) = rot.apply(shape.bounds().cast()).tuple();
+			let end = pos.clone() + Point::new(br_x.abs(), br_y.abs(), br_z.abs());
 
-			min = fold_coords(
-				min,
-				[start, end],
-				|a, b| if a < b { a } else { b }
-			);
+			if *start.x() < min_x { min_x = *start.x(); }
+			if *start.y() < min_y { min_y = *start.y(); }
+			if *start.z() < min_z { min_z = *start.z(); }
+
+			if *end.x() < min_x { min_x = *end.x(); }
+			if *end.y() < min_y { min_y = *end.y(); }
+			if *end.z() < min_z { min_z = *end.z(); }
 
 			max = fold_coords(
 				max,
@@ -177,6 +180,7 @@ impl Scheme {
 				|a, b| if a > b { a } else { b }
 			);
 		}
+		let min = Point::new(min_x, min_y, min_z);
 
 		(min, (max - min).cast())
 	}

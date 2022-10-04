@@ -2,11 +2,12 @@ use sm_logic::bind::Bind;
 use sm_logic::combiner::*;
 use sm_logic::scheme::Scheme;
 use sm_logic::positioner::ManualPos;
+use sm_logic::shape::vanilla::Timer;
 use sm_logic::util::GateMode::{AND, OR, XOR};
 use sm_logic::util::Facing;
 
 fn main() {
-	match adder(8).compile() {
+	match test().compile() {
 		Err(e) => println!("Fail: {:?}", e),
 		Ok((scheme, invalid_acts)) => {
 			println!("\nInvalid conns:");
@@ -42,7 +43,26 @@ fn main() {
 	}
 }
 
-fn adder(word_size: u32) -> Combiner<ManualPos> {
+fn test() -> Combiner<ManualPos> {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add(format!("_"), Timer::new(42)).unwrap();
+	combiner.pos().place_last((0, 0, 3));
+
+	for x in 0..4 {
+		for y in 0..4 {
+			for z in 0..4 {
+				combiner.add(format!("{}_{}_{}", x, y, z), Timer::new(42)).unwrap();
+				combiner.pos().place_last(((x + y * 4 + z * 4 * 4) * 2, 0, 0));
+				combiner.pos().rotate_last((x, y, z));
+			}
+		}
+	}
+
+	combiner
+}
+
+fn adder(word_size: u32) -> Scheme {
 	let section = section();
 
 	// Создание сумматора из таких секций
@@ -75,7 +95,9 @@ fn adder(word_size: u32) -> Combiner<ManualPos> {
 	bind.connect_func(|x, _, _| Some(format!("{}/res", x)));
 	adder.bind_output(bind).unwrap();
 
-	adder
+	let (scheme, _) = adder.compile().unwrap();
+	scheme
+	//adder
 }
 
 fn section() -> Scheme {

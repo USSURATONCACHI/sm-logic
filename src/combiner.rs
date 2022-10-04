@@ -66,8 +66,6 @@ pub struct Combiner<P: Positioner> {
 
 	inputs: Vec<Bind>,
 	outputs: Vec<Bind>,
-
-	// invalid_acts: InvalidActs,
 }
 
 impl Combiner<ManualPos> {
@@ -84,7 +82,6 @@ impl<P: Positioner> Combiner<P> {
 			positioner,
 			inputs: vec![],
 			outputs: vec![],
-			// invalid_acts: InvalidActs::new(),
 		}
 	}
 
