@@ -5,7 +5,7 @@ use crate::scheme;
 use crate::slot::{Slot, SlotSector};
 use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, split_first_token};
 
-
+/// Invalid connection wrapper.
 #[derive(Debug, Clone)]
 pub enum InvalidConn {
 	TargetSchemeDoesNotExists {
@@ -26,15 +26,60 @@ pub enum InvalidConn {
 }
 
 #[derive(Debug, Clone)]
+pub enum SectorError {
+	NameIsAlreadyTaken {
+		taken_name: String,
+	},
+
+	SectorIsOutOfSlotBounds {
+		sector_name: String,
+		sector_pos: Point,
+		sector_bounds: Bounds,
+		slot_bounds: Bounds,
+	}
+}
+
+/// Bind is just [`Slot`] builder.
+///
+/// It is used to create Slots conveniently.
+///
+/// # Example
+/// ```
+/// # use crate::sm_logic::bind::Bind;
+/// # use crate::sm_logic::combiner::Combiner;
+/// # let mut combiner = Combiner::pos_manual();
+/// let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+/// // Connects the whole slot to some other slot
+/// bind.connect_full("some scheme/some other slot");
+/// // Connect one point of the slot to some specific slot
+/// bind.connect(((0, 0, 0), (1, 1, 1)), "specific_logic_gate");
+/// // Create sector of the slot
+/// bind.add_sector("specific_trigger", (0, 0, 0), (1, 1, 1), "logic").unwrap();
+///
+/// combiner.bind_input(bind).unwrap();
+/// // or bind_output
+/// ```
+#[derive(Debug, Clone)]
 pub struct Bind {
 	name: String,
 	kind: String,
 	size: Bounds,
 
+	sectors: Vec<(String, Point, Bounds, String)>,
 	maps: Vec<BasicBind>,
 }
 
 impl Bind {
+	/// Creates new empty [`Bind`]
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::bind::Bind;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # let mut combiner = Combiner::pos_manual();
+	/// let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// combiner.bind_input(bind).unwrap();
+	/// // or bind_output
+	/// ```
 	pub fn new<S1, S2, B>(slot_name: S1, slot_kind: S2, bounds: B) -> Self
 		where S1: Into<String>,
 			  S2: Into<String>,
@@ -45,6 +90,7 @@ impl Bind {
 			kind: slot_kind.into(),
 			size: bounds.into(),
 
+			sectors: vec![],
 			maps: vec![],
 		}
 	}
@@ -60,21 +106,87 @@ impl Bind {
 	pub fn bounds(&self) -> Bounds {
 		self.size.clone()
 	}
+
+	/// Adds sector to the Bind (Slot)
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// // Create sector of the slot
+	/// bind.add_sector("specific_trigger", (0, 0, 0), (1, 1, 1), "logic").unwrap();
+	/// ```
+	pub fn add_sector<S1, P, B, S2>(&mut self, name: S1, corner: P, bounds: B, kind: S2) -> Result<(), SectorError>
+		where S1: Into<String>, S2: Into<String>,
+				P: Into<Point>, B: Into<Bounds>,
+	{
+		let name = name.into();
+		for (added_name, _, _, _) in &self.sectors {
+			if added_name.eq(&name) {
+				return Err(
+					SectorError::NameIsAlreadyTaken {
+						taken_name: name,
+					}
+				)
+			}
+		}
+
+		let corner = corner.into();
+		let bounds = bounds.into();
+
+		let start = corner;
+		let end: Point = start + bounds.cast() - Point::new_ng(1_i32, 1, 1);
+
+		if !is_point_in_bounds(start, self.bounds()) ||
+			!is_point_in_bounds(end, self.bounds()) {
+			return Err(
+				SectorError::SectorIsOutOfSlotBounds {
+					sector_name: name,
+					sector_pos: corner,
+					sector_bounds: bounds,
+					slot_bounds: self.bounds(),
+				}
+			)
+		}
+
+		self.sectors.push((name, corner, bounds, kind.into()));
+		Ok(())
+	}
 }
 
 impl Bind {
-	pub fn custom<P>(&mut self, sector: (Point, Bounds), target: P, conn: Box<dyn Connection>) -> &mut Self
-		where P: Into<String>
+	/// Connects some part (sector) of the slot with custom connection (`conn` argument)
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnStraight;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// bind.custom(((0, 0, 0), (1, 1, 1)), "path/to/slot or sector", ConnStraight::new());
+	/// ```
+	pub fn custom<Pt, B, P>(&mut self, sector: (Pt, B), target: P, conn: Box<dyn Connection>) -> &mut Self
+		where P: Into<String>, Pt: Into<Point>, B: Into<Bounds>
 	{
 		self.maps.push(BasicBind {
-			sector_corner: sector.0,
-			sector_size: sector.1,
+			sector_corner: sector.0.into(),
+			sector_size: sector.1.into(),
 			target: target.into(),
 			conn
 		});
 		self
 	}
-
+	/// Connects some part (sector) of the slot with straight connection
+	/// (ConnStraight)
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnStraight;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// bind.custom(((0, 0, 0), (1, 1, 1)), "path/to/slot or sector", ConnStraight::new());
+	/// // these two lines are equal
+	/// bind.connect(((0, 0, 0), (1, 1, 1)), "path/to/slot or sector");
+	/// ```
 	pub fn connect<P, Pt, B>(&mut self, sector: (Pt, B), target: P) -> &mut Self
 		where P: Into<String>, Pt: Into<Point>, B: Into<Bounds>
 	{
@@ -82,8 +194,19 @@ impl Bind {
 		self.custom(sector, target, ConnStraight::new())
 	}
 
-	pub fn dim<P>(&mut self, sector: (Point, Bounds), target: P, adapt_axed: (bool, bool, bool)) -> &mut Self
-		where P: Into<String>
+	/// Connects some part (sector) of the slot with [`ConnDim`] connection
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnDim;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// bind.custom(((0, 0, 0), (1, 1, 1)), "path/to/slot or sector", ConnDim::new((true, true, false)));
+	/// // these two lines are equal
+	/// bind.dim(((0, 0, 0), (1, 1, 1)), "path/to/slot or sector", (true, true, false));
+	/// ```
+	pub fn dim<P, Pt, B>(&mut self, sector: (Pt, B), target: P, adapt_axed: (bool, bool, bool)) -> &mut Self
+		where P: Into<String>, Pt: Into<Point>, B: Into<Bounds>
 	{
 		self.custom(
 			sector,
@@ -92,6 +215,17 @@ impl Bind {
 		)
 	}
 
+	/// Connects the whole slot with custom connection (`conn` argument)
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnStraight;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// bind.custom(((0, 0, 0), bind.bounds()), "path/to/slot or sector", ConnStraight::new());
+	///	// These two lines are equal
+	/// bind.custom_full("path/to/slot or sector", ConnStraight::new());
+	/// ```
 	pub fn custom_full<P>(&mut self, target: P, conn: Box<dyn Connection>) -> &mut Self
 		where P: Into<String>
 	{
@@ -102,7 +236,16 @@ impl Bind {
 			conn
 		)
 	}
-
+	/// Connects the whole slot with straight connection (ConnStraight)
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnStraight;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// bind.custom_full("path/to/slot or sector", ConnStraight::new());
+	///	// These two lines are equal
+	/// bind.connect_full("path/to/slot or sector");
+	/// ```
 	pub fn connect_full<P>(&mut self, target: P) -> &mut Self
 		where P: Into<String>
 	{
@@ -113,6 +256,16 @@ impl Bind {
 		)
 	}
 
+	/// Connects the whole slot with [`ConnDim`] connection
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnDim;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// bind.custom_full("path/to/slot or sector", ConnDim::new((true, false, true)));
+	///	// These two lines are equal
+	/// bind.dim_full("path/to/slot or sector", (true, false, true));
+	/// ```
 	pub fn dim_full<P>(&mut self, target: P, axes: (bool, bool, bool)) -> &mut Self
 		where P: Into<String>
 	{
@@ -124,6 +277,18 @@ impl Bind {
 		)
 	}
 
+	/// Connects the whole slot using some map.
+	/// Map must take slot abstract point position as input and return
+	/// and option of other slot path, to connect that point into.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnDim;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 15, 20));
+	/// // Each point of the slot will be connected separately
+	/// bind.connect_func( |x, y, z| Some(format!("gate_{}_{}_{}", x, y, z+1)) );
+	/// ```
 	pub fn connect_func<P, F>(&mut self, func: F) -> &mut Self
 		where P: Into<String>,
 			  F: Fn(usize, usize, usize) -> Option<P>
@@ -209,7 +374,13 @@ impl Bind {
 			}
 		}
 
-		let slot = Slot::new(self.name, self.kind, self.size, map);
+		let mut slot = Slot::new(self.name, self.kind, self.size, map);
+
+		for (name, pos, bounds, kind) in self.sectors {
+			let sector = SlotSector { pos, bounds, kind };
+			slot.bind_sector(name, sector).unwrap();
+		}
+
 		(slot, errors)
 	}
 }

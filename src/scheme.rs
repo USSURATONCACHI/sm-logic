@@ -9,6 +9,17 @@ use crate::util::Point;
 
 pub const DEFAULT_SLOT: &str = "_";
 
+/// Some structure/creation/blueprint made up of in-game
+/// blocks and parts.
+///
+/// Can have inputs and outputs, which are [`Slot`]s.
+///
+/// Any [`Shape`] can be converted to Scheme.
+///
+/// Using `Combiner` schemes can be connected to each other and combined
+/// into bigger scheme.
+///
+/// Every scheme has size/bounds. It can change, if scheme is rotated.
 #[derive(Debug, Clone)]
 pub struct Scheme {
 	shapes: Vec<(Point, Rot, Shape)>,
@@ -18,6 +29,7 @@ pub struct Scheme {
 }
 
 impl Scheme {
+	/// Scheme constructor.
 	pub fn create(
 		shapes: Vec<(Point, Rot, Shape)>,
 		inputs: Vec<Slot>,
@@ -33,6 +45,7 @@ impl Scheme {
 		scheme
 	}
 
+	/// Rotates whole Scheme / rotates every [`Shape`] of it.
 	pub fn rotate(&mut self, rot: Rot) {
 		let global_rot = rot;
 		for (pos, rot, _) in &mut self.shapes {
@@ -42,14 +55,17 @@ impl Scheme {
 		self.set_bounds();
 	}
 
+	/// Returns all the inputs of the Scheme.
 	pub fn inputs(&self) -> &Vec<Slot> {
 		&self.inputs
 	}
 
+	/// Returns all the outputs of the Scheme.
 	pub fn outputs(&self) -> &Vec<Slot> {
 		&self.outputs
 	}
 
+	/// Tries to find input slot/sector with given name.
 	pub fn input<N>(&self, name: N) -> Option<(&Slot, &SlotSector)>
 		where N: Into<String>
 	{
@@ -68,6 +84,7 @@ impl Scheme {
 		}
 	}
 
+	/// Tries to find output slot/sector with given name.
 	pub fn output<N>(&self, name: N) -> Option<(&Slot, &SlotSector)>
 		where N: Into<String>
 	{
@@ -86,6 +103,7 @@ impl Scheme {
 		}
 	}
 
+	// Do I need to add documentation to such methods?
 	pub fn shapes_count(&self) -> usize {
 		self.shapes.len()
 	}
@@ -98,6 +116,9 @@ impl Scheme {
 		self.bounds.clone()
 	}
 
+	/// Shifts, rotates and offsets controller ids, then returns raw data:
+	///
+	/// shapes, inputs, outputs
 	pub fn disassemble(mut self, start_shape: usize, pos: Point, rot: Rot) -> (Vec<(Point, Rot, Shape)>, Vec<Slot>, Vec<Slot>) {
 		let (start, _) = self.calculate_bounds();
 
@@ -113,6 +134,7 @@ impl Scheme {
 		(self.shapes, self.inputs, self.outputs)
 	}
 
+	/// Converts [`Scheme`] to JSON blueprint.
 	pub fn to_json(mut self) -> JsonValue {
 		let mut array: Vec<JsonValue> = Vec::new();
 
