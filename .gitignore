@@ -1,6 +1,7 @@
 /target
 /Cargo.lock
+/sm-logic-usage/
 /sm-logic-usage/target
 /sm-logic-usage/Cargo.lock
-/.idea
 /sm-logic-usage/.idea
+/.idea
