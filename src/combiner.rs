@@ -10,6 +10,7 @@ use crate::shape::Shape;
 use crate::slot::{Slot, SlotSector};
 use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, Rot, split_first_token};
 
+/// Container for all invalid actions performed on the Combiner.
 #[derive(Debug, Clone)]
 pub struct InvalidActs {
 	pub connections: Vec<ConnCase>,
@@ -51,6 +52,7 @@ pub enum Error {
 	},
 }
 
+/// Container for single connection with all of its parameters
 #[derive(Debug, Clone)]
 pub struct ConnCase {
 	pub from: String,
@@ -58,6 +60,217 @@ pub struct ConnCase {
 	pub connection: Box<dyn Connection>,
 }
 
+/// The [`Scheme`] builder.
+/// Can contain schemes, interconnect them and combine/compile into
+/// new bigger scheme.
+///
+/// # Adding schemes
+///
+/// You can add schemes into combiner. Every scheme has to have unique
+/// name in the Combiner:
+///
+/// ```
+/// # use crate::sm_logic::combiner::Combiner;
+/// # use crate::sm_logic::shape::vanilla::GateMode;
+/// # use crate::sm_logic::shape::vanilla::Timer;
+/// # use crate::sm_logic::shape::vanilla::BlockBody;
+/// # use crate::sm_logic::shape::vanilla::BlockType;
+/// let mut combiner = Combiner::pos_manual();
+///
+/// // GateMode::XOR implements Into<Scheme>, so it is automatically converted into scheme
+/// let res = combiner.add("first_gate", GateMode::XOR);
+///	assert!(res.is_ok());
+///
+/// // These two name are unique
+/// let res = combiner.add("timer", Timer::new(42));
+///	assert!(res.is_ok());
+///
+/// // 'timer' name is already taken
+/// let plate = BlockBody::new(BlockType::Cardboard, (10, 10, 1));	// `Shape` also implements Into<Scheme>
+/// let res = combiner.add("timer", plate);
+///	assert!(res.is_err());
+/// ```
+///
+/// # Connecting schemes
+///
+/// Schemes have *slots* - inputs and outputs.
+///
+/// Outputs can be connected to inputs and only this way (output ->
+/// input).
+///
+/// Connection from input TO output (input -> output) is invalid and
+/// impossible.<br><br>
+///
+/// Slots are specified to the combined via slot *paths*. Path is a
+/// string in following format:<br>
+/// **`"<scheme name>/<slot_name>/<optional - sector name>"`**<br><br>
+///
+/// If you do not specify the sector, the whole slot will be connected.
+/// Next two formats are the same:<br>
+/// **`"<scheme name>/<slot_name>"`**<br>
+/// **`"<scheme name>/<slot_name>/"`**<br><br>
+///
+/// Examples:
+/// ```
+/// # use crate::sm_logic::combiner::Combiner;
+/// # let mut combiner = Combiner::pos_manual();
+/// // "from path" -> "to path"
+/// // scheme - 'adder_1', slot - 'a', sector - default
+/// combiner.connect("adder_1/a", "adder_2/a");
+/// // scheme - 'encryptor', slot - 'data', sector - 'first_number'
+/// combiner.connect("encryptor/data/first_number", "adder_2/b");
+/// ```
+///
+/// If you do not specify slot name, slot name is set to default. Next
+/// two examples are equal:<br>
+/// ```
+/// # use crate::sm_logic::combiner::Combiner;
+/// # let mut combiner = Combiner::pos_manual();
+/// // "from path" -> "to path"
+/// // connect to default slot of 'and_gate'
+/// combiner.connect("signal", "and_gate");
+/// // connect to '_' (default) slot of 'and_gate'
+/// combiner.connect("signal", "and_gate/_");
+/// ```
+///
+/// # Setting position and rotation of schemes
+///
+/// `Combiner` have very flexible and simple system for assigning
+/// physical positions and rotations to schemes. It is [`Positioner`]
+/// trait. `Combiner<P: Positioner>` allows for any logic of positioning
+/// its schemes.
+///
+/// <br>
+///
+/// You can get mutable reference to positioner by calling
+/// `combiner.pos()`
+///
+/// <br>
+///
+/// Default implementation of [`Positioner`] is [`ManualPos`].
+/// [`ManualPos`] requires for you to set positions of all the added
+/// schemes. Rotations by default are (0, 0, 0), but you can rotate
+/// schemes too.
+///
+/// If at least one scheme's position is not set - error will be
+/// returned at compilation stage.
+///
+/// Example:
+/// ```
+/// # use crate::sm_logic::combiner::Combiner;
+/// # use crate::sm_logic::shape::vanilla::GateMode;
+/// # use crate::sm_logic::shape::vanilla::Timer;
+/// # use crate::sm_logic::shape::vanilla::BlockBody;
+/// # use crate::sm_logic::shape::vanilla::BlockType;
+/// // Combiner::pos_manual() returns default Combiner<ManualPos>
+/// let mut combiner = Combiner::pos_manual();
+///
+/// let res = combiner.add("first_gate", GateMode::XOR).unwrap();
+/// // Last added scheme will be placed in the specified position
+/// combiner.pos().place_last((0, 0, 0));
+/// // Rotation is not necessary, but possible.
+/// // 'first_gate' will be rotated around CENTER of BLOCK (0, 0, 0)
+/// // relative to the scheme itself. Since Logic Gate has size (1, 1, 1)
+/// // Its position won't change, only orientation. But bigger schemes
+/// // will rotate around center of corner block.
+///
+/// // But there is a hack: if we `scheme.rotate((rx, ry, rz))` before
+/// // adding it to the combiner its corner block will change.
+/// combiner.pos().rotate_last((0, 0, 2));
+///
+/// let res = combiner.add("timer", Timer::new(42)).unwrap();
+/// // We will set the position later
+///
+/// let res = combiner.add("plate", BlockBody::new(BlockType::Cardboard, (10, 10, 1)));
+///
+/// combiner.pos().place("timer", (0, 0, 1)); // Right on top of the gate
+/// combiner.pos().place("plate", (0, 0, -1)); // Right under the gate
+///
+/// // All schemes have their positions, so there would be no error
+/// // at compilation
+/// ```
+///
+/// # Binding inputs and outputs
+///
+/// After adding all the components (schemes) and connecting them, it is
+/// usual to add some inputs and/or outputs to the scheme, that is being
+/// constructed.
+///
+/// For example: scheme, that controls the door from buttons for sure
+/// should have inputs for control buttons, and output for the door
+/// controller (open/close).
+///
+/// For example: binary adder should have two inputs for binary numbers,
+/// one output for their sum, and possibly output/input for carry bit.
+///
+/// # Example: lets create one bit adder
+/// ```
+/// # use crate::sm_logic::combiner::Combiner;
+/// # use crate::sm_logic::shape::vanilla::GateMode::*;
+/// # use crate::sm_logic::util::Facing;
+/// # use crate::sm_logic::bind::Bind;
+/// let mut s = Combiner::pos_manual();
+///
+/// // Add gates for inputs - bit a, bit b, carry bit
+/// s.add_mul(["a", "b", "carry"], OR).unwrap();
+/// // Add gates for adder logic
+/// s.add_mul(["and_1", "and_2", "and_3"], AND).unwrap();
+/// // Gate with result
+/// s.add("res", XOR).unwrap();
+///
+/// // Place all the gates to their positions
+/// s.pos().place_iter([
+/// 	("a", (0, 0, 0)),
+/// 	("b", (0, 0, 1)),
+/// 	("carry", (2, 0, 1)),
+/// 	("and_1", (1, 0, 0)),
+/// 	("and_2", (1, 0, 1)),
+/// 	("and_3", (2, 0, 0)),
+/// 	("res", (3, 0, 0)),
+/// ]);
+///
+/// s.pos().rotate("a", Facing::NegX.to_rot());
+/// s.pos().rotate("b", Facing::NegX.to_rot());
+/// s.pos().rotate("res", Facing::PosX.to_rot());
+///
+/// // ==== THE BINDING PART ====
+/// // Bind input 'a'.
+/// let mut bind = Bind::new("a", "bit", (1, 1, 1));
+/// bind.connect_full("a");	// Connect this slot to gate 'a', default slot.
+/// s.bind_input(bind).unwrap(); // Add the bind to the combiner.
+///
+/// // The same way bind inputs 'b' and 'carry'.
+/// let mut bind = Bind::new("b", "bit", (1, 1, 1));
+/// bind.connect_full("b");
+/// s.bind_input(bind).unwrap();
+///
+/// let mut bind = Bind::new("carry", "bit", (1, 1, 1));
+/// bind.connect_full("carry");
+/// s.bind_input(bind).unwrap();
+///
+/// // Connecting each on the left to each on the right.
+/// s.connect_iter(["a", "b", "_"], ["res"]);
+///
+/// s.connect_iter(["a"], ["and_1", "and_2"]);
+/// s.connect_iter(["b"], ["and_2", "and_3"]);
+/// s.connect_iter(["_"], ["and_3", "and_1"]);
+///
+/// // ==== THE BINDING PART ====
+/// // Bind output 'carry'. Note: input 'carry' and output 'carry' have
+/// // the same name, but won't produce error, since those do not interfere
+/// let mut bind = Bind::new("carry", "bit", (1, 1, 1));
+/// bind.connect_full("and_1")  // Slot point is being connected to THREE
+/// 	.connect_full("and_2")  // shapes simultaneously.
+/// 	.connect_full("and_3");
+/// s.bind_output(bind).unwrap();///
+///
+/// // Bind output 'res' - for result. Just as inputs
+/// let mut bind = Bind::new("res", "bit", (1, 1, 1));
+/// bind.connect_full("res");
+/// s.bind_output(bind).unwrap();
+///
+/// assert!(s.compile().is_ok());
+/// ```
 #[derive(Debug, Clone)]
 pub struct Combiner<P: Positioner> {
 	schemes: HashMap<String, Scheme>,
@@ -69,12 +282,14 @@ pub struct Combiner<P: Positioner> {
 }
 
 impl Combiner<ManualPos> {
+	/// Default Combiner - with positioner of ManualPos
 	pub fn pos_manual() -> Self {
 		Combiner::new(ManualPos::new())
 	}
 }
 
 impl<P: Positioner> Combiner<P> {
+	/// Creates new Combiner with custom positioner
 	pub fn new(positioner: P) -> Self {
 		Combiner {
 			schemes: HashMap::new(),
@@ -85,12 +300,35 @@ impl<P: Positioner> Combiner<P> {
 		}
 	}
 
+	/// Returns mutable reference to positioner
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// // Example with ManualPos
+	/// let mut combiner = Combiner::pos_manual();
+	///
+	/// // combiner.pos() returns &mut ManualPos
+	/// combiner.pos().place("scheme", (1, 2 ,3));
+	/// ```
 	pub fn pos(&mut self) -> &mut P {
 		&mut self.positioner
 	}
 }
 
 impl<P: Positioner> Combiner<P> {
+	/// Adds scheme with its unique name to the combiner.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::scheme::Scheme;
+	/// # use sm_logic::shape::vanilla::GateMode;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.add("and_gate", GateMode::AND).unwrap();
+	/// // Do not forget to set its position later, if you use ManualPos
+	/// ```
 	pub fn add<N, S>(&mut self, name: N, scheme: S) -> Result<(), Error>
 		where N: Into<String>,
 			  S: Into<Scheme>
@@ -116,6 +354,25 @@ impl<P: Positioner> Combiner<P> {
 		}
 	}
 
+	/// Adds all the (name, scheme) pairs passed to the combiner.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::shape::vanilla::GateMode::*;
+	/// # use sm_logic::shape::vanilla::Timer;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.add_iter([
+	/// 	("and_gate", AND),
+	/// 	("or_gate", OR),
+	/// 	("xor_gate", XOR),
+	/// 	("nand_gate", NAND),
+	/// 	("nor_gate", NOR),
+	/// 	("xnor_gate", XNOR),
+	/// ]).unwrap();
+	/// // Do not forget to set all positions later, if you use ManualPos
+	/// ```
 	pub fn add_iter<N, S, I>(&mut self, pairs: I) -> Result<(), Vec<Error>>
 		where N: Into<String>,
 			  S: Into<Scheme>,
@@ -136,6 +393,17 @@ impl<P: Positioner> Combiner<P> {
 		}
 	}
 
+	/// Adds multiple copies of the same scheme but with different names.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::shape::vanilla::Timer;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.add_mul(["timer_1", "timer_2", "timer_3"], Timer::new(42)).unwrap();
+	/// // Do not forget to set all positions later, if you use ManualPos
+	/// ```
 	pub fn add_mul<S, N, I>(&mut self, names: I, scheme: S) -> Result<(), Vec<Error>>
 		where S: Into<Scheme>,
 			  N: Into<String>,
@@ -160,6 +428,17 @@ impl<P: Positioner> Combiner<P> {
 }
 
 impl<P: Positioner> Combiner<P> {
+	/// Connects two slots with given connection (`conn` arg).
+	/// 'custom' - is for 'custom connection'
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::ConnMap;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # let mut combiner = Combiner::pos_manual();
+	/// let connection = ConnMap::new(|(point, _), _| Some(point * 2));
+	/// combiner.custom("scheme1/slot1", "scheme2/slot2", connection);
+	/// ```
 	pub fn custom<P1, P2>(&mut self, from: P1, to: P2, conn: Box<dyn Connection>)
 		where P1: Into<String>,
 			  P2: Into<String>
@@ -173,6 +452,20 @@ impl<P: Positioner> Combiner<P> {
 		);
 	}
 
+	/// Connects two slots with straight connection ([`ConnStraight`]).
+	/// 'Straight' means, that each point of output slot connects to the
+	/// same point of input slot.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::{ConnStraight};
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.connect("scheme1/slot1", "scheme2/slot2");
+	/// // These two lines do the same thing
+	/// combiner.custom("scheme1/slot1", "scheme2/slot2", ConnStraight::new());
+	/// ```
 	pub fn connect<P1, P2>(&mut self, from: P1, to: P2)
 		where P1: Into<String>,
 			  P2: Into<String>
@@ -180,6 +473,29 @@ impl<P: Positioner> Combiner<P> {
 		self.custom(from, to, ConnStraight::new())
 	}
 
+	/// Connects two slots with dimensional connection ([`ConnDim`]).
+	/// 'Dim' is for 'dimensional' and it means, that specified dimensions
+	/// of the slot will be ignored ("flattened").<br><br>
+	///
+	/// Explanation attempt:
+	/// In the following example adapted axis is X (only first is true - (true, false, false)).
+	/// Due to that, for example, output points (inp_x, 1, 2) for ***each*** 'inp_x' will be connected
+	/// to input points (out_x, 1, 2) for ***each*** 'out_x'.<br><br>
+	///
+	/// Explanation attempt 2:
+	/// It's like slots are being "flattened" on certain axes, then connected, and
+	/// then "unflattened" back.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::{ConnDim};
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.dim("scheme1/slot1", "scheme2/slot2", (true, false, false));
+	/// // These two lines do the same thing
+	/// combiner.custom("scheme1/slot1", "scheme2/slot2", ConnDim::new((true, false, false)));
+	/// ```
 	pub fn dim<P1, P2>(&mut self, from: P1, to: P2, adapt_axes: (bool, bool, bool))
 		where P1: Into<String>,
 				P2: Into<String>,
@@ -187,6 +503,32 @@ impl<P: Positioner> Combiner<P> {
 		self.custom(from, to, ConnDim::new(adapt_axes))
 	}
 
+	/// Just like 'custom', but for multiple targets. ***Each*** slot
+	/// on the left will be connected to ***each*** slot on the right<br>
+	/// (with given connection (`conn` arg)).
+	/// 'custom' - is for 'custom connection'
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::{ConnStraight};
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.custom_iter(["1", "2", "3"], ["4", "5", "6"], ConnStraight::new());
+	/// // These two ways do the same thing
+	///
+	/// // Each to each
+ 	///	let conn = ConnStraight::new();
+	/// combiner.custom("1", "4", conn.clone());
+	/// combiner.custom("1", "5", conn.clone());
+	/// combiner.custom("1", "6", conn.clone());
+	/// combiner.custom("2", "4", conn.clone());
+	/// combiner.custom("2", "5", conn.clone());
+	/// combiner.custom("2", "6", conn.clone());
+	/// combiner.custom("3", "4", conn.clone());
+	/// combiner.custom("3", "5", conn.clone());
+	/// combiner.custom("3", "6", conn.clone());
+	/// ```
 	pub fn custom_iter<I1, I2, P1, P2>(&mut self, from: I1, to: I2, conn: Box<dyn Connection>)
 		where P1: Into<String>, I1: IntoIterator<Item = P1>,
 			  P2: Into<String>, I2: IntoIterator<Item = P2>,
@@ -203,6 +545,22 @@ impl<P: Positioner> Combiner<P> {
 		}
 	}
 
+	/// Just like 'connect', but for multiple targets. ***Each*** slot
+	/// on the left will be connected to ***each*** slot on the right
+	/// with straight connection ([`ConnStraight`]).
+	/// 'Straight' means, that each point of output slot connects to the
+	/// same point of input slot.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::{ConnStraight};
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.connect_iter(["1", "2", "3"], ["4", "5", "6"]);
+	/// // These two lines do the same thing
+	/// combiner.custom_iter(["1", "2", "3"], ["4", "5", "6"], ConnStraight::new());
+	/// ```
 	pub fn connect_iter<I1, I2, P1, P2>(&mut self, from: I1, to: I2)
 		where P1: Into<String>, I1: IntoIterator<Item = P1>,
 			  P2: Into<String>, I2: IntoIterator<Item = P2>,
@@ -210,6 +568,32 @@ impl<P: Positioner> Combiner<P> {
 		self.custom_iter(from, to, ConnStraight::new())
 	}
 
+	/// Just like 'connect', but for multiple targets. ***Each*** slot
+	/// on the left will be connected to ***each*** slot on the right
+	/// with dimensional connection ([`ConnDim`]).
+	///
+	/// 'Dim' is for 'dimensional' and it means, that specified dimensions
+	/// of the slot will be ignored ("flattened").<br><br>
+	///
+	/// Explanation attempt:
+	/// In the following example adapted axis is X (only first is true - (true, false, false)).
+	/// Due to that, for example, output points (inp_x, 1, 2) for ***each*** 'inp_x' will be connected
+	/// to input points (out_x, 1, 2) for ***each*** 'out_x'.<br><br>
+	///
+	/// Explanation attempt 2:
+	/// It's like slots are being "flattened" on certain axes, then connected, and
+	/// then "unflattened" back.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::connection::{ConnDim, ConnStraight};
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # let mut combiner = Combiner::pos_manual();
+	///
+	/// combiner.dim_iter(["1", "2", "3"], ["4", "5", "6"], (false, true, false));
+	/// // These two lines do the same thing
+	/// combiner.custom_iter(["1", "2", "3"], ["4", "5", "6"], ConnDim::new((false, true, false)));
+	/// ```
 	pub fn dim_iter<I1, I2, P1, P2>(&mut self, from: I1, to: I2, adapt_axes: (bool, bool, bool))
 		where P1: Into<String>, I1: IntoIterator<Item = P1>,
 			  P2: Into<String>, I2: IntoIterator<Item = P2>,
@@ -219,6 +603,23 @@ impl<P: Positioner> Combiner<P> {
 }
 
 impl<P: Positioner> Combiner<P> {
+	/// Adds input bind to all binds list. Bind name must be unique.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut combiner = Combiner::pos_manual();
+	///
+	/// // Slot 2X by 1Y by 1Z
+	/// let mut input = Bind::new("my input", "my input kind", (2, 1, 1));
+	/// // Connect sector with size 1X by 1Y by 1Z to some slot
+	/// input.connect(((0, 0, 0), (1, 1, 1)), "left_gate/_");
+	/// // Connect another sector
+	/// input.connect(((1, 0, 0), (1, 1, 1)), "right_gate/_");
+	///
+	/// combiner.bind_input(input).unwrap();
+	/// ```
 	pub fn bind_input<B>(&mut self, bind: B) -> Result<(), Error>
 		where B: Into<Bind>
 	{
@@ -244,6 +645,23 @@ impl<P: Positioner> Combiner<P> {
 		Ok(())
 	}
 
+	/// Adds input bind to all binds list. Bind name must be unique.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut combiner = Combiner::pos_manual();
+	///
+	/// // Slot 2X by 1Y by 1Z
+	/// let mut output = Bind::new("my output", "my output kind", (2, 1, 1));
+	/// // Connect sector with size 1X by 1Y by 1Z to some slot
+	/// output.connect(((0, 0, 0), (1, 1, 1)), "left_gate/_");
+	/// // Connect another sector
+	/// output.connect(((1, 0, 0), (1, 1, 1)), "right_gate/_");
+	///
+	/// combiner.bind_output(output).unwrap();
+	/// ```
 	pub fn bind_output<B>(&mut self, bind: B) -> Result<(), Error>
 		where B: Into<Bind>
 	{
@@ -269,6 +687,23 @@ impl<P: Positioner> Combiner<P> {
 		Ok(())
 	}
 
+	/// Copies input from inner scheme, but name and kind might be replaced.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::shape::vanilla::GateMode;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # use crate::sm_logic::bind::Bind;
+	/// let mut combiner = Combiner::pos_manual();
+	/// // Could be any scheme
+	/// combiner.add("signal_gate", GateMode::XOR).unwrap();
+	///
+	/// // New slot with name "my input pass" will be created,
+	/// // connected to "signal_gate/_" slot.
+	/// // None means slot kind will be the same with target's
+	/// // `"signal_gate"` is path to the slot to be copied
+	/// combiner.pass_input("my input pass", "signal_gate", None as Option<String>).unwrap();
+	/// ```
 	pub fn pass_input<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>) -> Result<(), Error>
 		where S: Into<String>,
 				Pt: Into<String>,
@@ -284,6 +719,23 @@ impl<P: Positioner> Combiner<P> {
 		self.bind_input(bind)
 	}
 
+	/// Copies output from inner scheme, but name and kind might be replaced.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::shape::vanilla::GateMode;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// # use crate::sm_logic::bind::Bind;
+	/// let mut combiner = Combiner::pos_manual();
+	/// // Could be any scheme
+	/// combiner.add("signal_gate", GateMode::XOR).unwrap();
+	///
+	/// // New slot with name "my output pass" will be created,
+	/// // connected to "signal_gate/_" slot.
+	/// // None means slot kind will be the same with target's
+	/// // `"signal_gate"` is path to the slot to be copied
+	/// combiner.pass_output("my output pass", "signal_gate", None as Option<String>).unwrap();
+	/// ```
 	pub fn pass_output<S, Pt, K>(&mut self, name: S, path: Pt, new_kind: Option<K>) -> Result<(), Error>
 		where S: Into<String>,
 			  Pt: Into<String>,
@@ -298,6 +750,7 @@ impl<P: Positioner> Combiner<P> {
 		let bind = self.parse_pass_data(name, path, new_kind, SlotSide::Output)?;
 		self.bind_output(bind)
 	}
+
 
 	fn parse_pass_data(&self, name: String, path: String, new_kind: Option<String>, side: SlotSide) -> Result<Bind, Error> {
 		let (scheme_name, slot_name) = split_first_token(path.clone());
@@ -343,6 +796,23 @@ impl<P: Positioner> Combiner<P> {
 }
 
 impl<P: Positioner> Combiner<P> {
+	/// Creates Scheme which is just cube of copies of passed shape.
+	/// - '`name`' is _scheme_ name.
+	/// - '`slot_kind`' is _slots'_ kind - there will be '_' input and '_' output.
+	/// - '`bounds`' is the size of the cube (count of shapes).
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::shape::vanilla::GateMode;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// let mut combiner = Combiner::pos_manual();
+	///
+	/// let res = combiner.create_slot_scheme("inner", "raw_data", (5, 5, 5), GateMode::OR, (0, 0, 0));
+	///	assert!(res.is_ok()); // Success
+	///
+	/// let res = combiner.add("inner", GateMode::OR);
+	/// assert!(res.is_err()); // This name is already taken
+	/// ```
 	pub fn create_slot_scheme<N, K, B, S, R>(&mut self, name: N,
 				  slot_kind: K, bounds: B, from_shape: S, shape_rot: R)
 		-> Result<(), Error>
@@ -360,6 +830,7 @@ impl<P: Positioner> Combiner<P> {
 			for y in 0..bounds_tuple.1 {
 				for z in 0..bounds_tuple.2 {
 					let pos = Point::new(x as i32, y as i32, z as i32);
+					// TODO: make the function take in account shape_rot while calculating shape bounds.
 					shapes.push((pos * main_shape.bounds().cast(), shape_rot.clone(), main_shape.clone()));
 
 					let id = x + y * bounds_tuple.0 + z * bounds_tuple.0 * bounds_tuple.1;
@@ -390,6 +861,31 @@ fn check_name_validity(name: &String) -> Result<(), Error> {
 
 
 impl<P: Positioner> Combiner<P> {
+	/// Compiles the [`Combiner`] to a [`Scheme`], and lists of all of
+	/// invalid actions performed - invalid connections, invalid inputs
+	/// and outputs.
+	///
+	/// # Example
+	/// ```
+	/// # use sm_logic::shape::vanilla::GateMode;
+	/// # use crate::sm_logic::combiner::Combiner;
+	/// let mut combiner = Combiner::pos_manual();
+	///
+	/// // Simple demo scheme - just single gate wrapper.
+	/// combiner.add("test", GateMode::AND).unwrap();
+	/// combiner.pos().place_last((0, 0, 0));
+	///
+	/// combiner.pass_input("_", "test", None as Option<String>).unwrap();
+	/// combiner.pass_output("_", "test", None as Option<String>).unwrap();
+	///
+	/// let result = combiner.compile();
+	/// assert!(result.is_ok());
+	/// let (scheme, invalid_acts) = result.unwrap();
+	///
+	/// assert_eq!(invalid_acts.connections.len(), 0);
+	/// assert_eq!(invalid_acts.inp_bind_conns.len(), 0);
+	/// assert_eq!(invalid_acts.out_bind_conns.len(), 0);
+	/// ```
 	pub fn compile(self) -> Result<(Scheme, InvalidActs), <P as Positioner>::Error> {
 		// Placing schemes
 		let schemes = self.positioner.arrange(self.schemes)?;
@@ -510,27 +1006,5 @@ fn get_scheme_slot<'a>(path: &String, slots: &'a HashMap<String, (usize, Vec<Slo
 						.map(|sector| (*start_shape, slot, sector))
 			}
 		}
-	}
-}
-
-impl<P: Positioner> Combiner<P> {
-	pub fn schemes_inputs(&self) -> HashMap<String, &Vec<Slot>> {
-		let mut map: HashMap<String, &Vec<Slot>> = HashMap::new();
-
-		for (name, scheme) in &self.schemes {
-			map.insert(name.to_string(), scheme.inputs());
-		}
-
-		map
-	}
-
-	pub fn schemes_outputs(&self) -> HashMap<String, &Vec<Slot>> {
-		let mut map: HashMap<String, &Vec<Slot>> = HashMap::new();
-
-		for (name, scheme) in &self.schemes {
-			map.insert(name.to_string(), scheme.outputs());
-		}
-
-		map
 	}
 }
