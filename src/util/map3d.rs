@@ -1,6 +1,19 @@
 use std::fmt::{Debug, Formatter};
 use crate::util::Bounds;
 
+/// It's like [`Vec`], but in 3D.
+///
+/// # Example
+/// ```
+/// # use crate::sm_logic::util::Map3D;
+///
+/// let map: Map3D<i32> = Map3D::filled((5, 6, 7), 4);
+///
+/// // There could be any point actually, not only (1, 2, 3)
+/// assert_eq!(map.get((1, 2, 3)), Some(&4));
+/// assert_eq!(map.get((10, 20, 30)), None);
+/// assert_eq!(map.size(), (5, 6, 7));
+/// ```
 #[derive(Clone)]
 pub struct Map3D<T> {
 	x_size: usize,
@@ -17,7 +30,6 @@ impl<T: Debug> Debug for Map3D<T> {
 }
 
 impl<T: Clone> Map3D<T> {
-	#[allow(dead_code)]
 	pub fn filled(size: (usize, usize, usize), default: T) -> Self {
 		Map3D {
 			x_size: size.0,
@@ -32,7 +44,9 @@ impl<T: Clone> Map3D<T> {
 }
 
 impl<T> Map3D<T> {
-	pub fn new<I>(size: (usize, usize, usize), data: I) -> Self
+	/// Creates Map3D from raw data. Length of `data` must be equal to
+	/// size.0 * size.1 * size.2
+	pub fn from_raw<I>(size: (usize, usize, usize), data: I) -> Self
 		where I: IntoIterator<Item = T>
 	{
 		let data: Vec<T> = data.into_iter().collect();
@@ -48,16 +62,16 @@ impl<T> Map3D<T> {
 		}
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
+	#[allow(dead_code)]
 	pub fn as_raw(&self) -> &Vec<T> {
 		&self.data
 	}
 
-	pub fn to_vec(self) -> Vec<T> {
+	pub fn to_raw(self) -> Vec<T> {
 		self.data
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
+	#[allow(dead_code)]
 	pub fn as_raw_mut(&mut self) -> &mut Vec<T> {
 		&mut self.data
 	}
@@ -66,16 +80,28 @@ impl<T> Map3D<T> {
 		(self.x_size, self.y_size, self.z_size)
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
+	#[allow(dead_code)]
 	pub fn size_u32(&self) -> (u32, u32, u32) {
 		(self.x_size as u32, self.y_size as u32, self.z_size as u32)
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
+	#[allow(dead_code)]
 	pub fn bounds(&self) -> Bounds {
 		Bounds::from_tuple(self.size_u32())
 	}
 
+	/// Returns reference to content at specified point.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Map3D;
+	///
+	/// let map: Map3D<i32> = Map3D::filled((5, 6, 7), 4);
+	///
+	/// // There could be any point actually, not only (1, 2, 3)
+	/// assert_eq!(map.get((1, 2, 3)), Some(&4));
+	/// assert_eq!(map.get((10, 20, 30)), None);
+	/// ```
 	pub fn get(&self, pos: (usize, usize, usize)) -> Option<&T> {
 		match self.to_id(pos) {
 			None => None,
@@ -83,6 +109,19 @@ impl<T> Map3D<T> {
 		}
 	}
 
+	/// Returns mutable reference to the content of specified point.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Map3D;
+	///
+	/// let mut map: Map3D<i32> = Map3D::filled((5, 6, 7), 4);
+	///
+	/// // There could be any point actually, not only (1, 2, 3)
+	/// let content: &mut i32 = map.get_mut((1, 2, 3)).unwrap();
+	/// *content = 7;
+	/// assert_eq!(map.get((1, 2, 3)), Some(&7));
+	/// ```
 	pub fn get_mut(&mut self, pos: (usize, usize, usize)) -> Option<&mut T> {
 		match self.to_id(pos) {
 			None => None,
@@ -90,7 +129,19 @@ impl<T> Map3D<T> {
 		}
 	}
 
-	#[allow(dead_code)]		// TODO: remove this
+	/// Replaces content of specified point with given `item`. Returns
+	/// previous content of the point.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Map3D;
+	///
+	/// let mut map: Map3D<i32> = Map3D::filled((5, 6, 7), 4);
+	///
+	/// // There could be any point actually, not only (1, 2, 3)
+	/// assert_eq!(map.replace((1, 2, 3), 7), Some(4));
+	/// assert_eq!(map.get((1, 2, 3)), Some(&7));
+	/// ```
 	pub fn replace(&mut self, pos: (usize, usize, usize), item: T) -> Option<T> {
 		match self.to_id(pos) {
 			None => None,
@@ -100,6 +151,7 @@ impl<T> Map3D<T> {
 		}
 	}
 
+	/// Returns position of the point in raw vector.
 	pub fn to_id(&self, pos: (usize, usize, usize)) -> Option<usize> {
 		if pos.0 >= self.x_size ||
 			pos.1 >= self.y_size ||
@@ -115,6 +167,19 @@ impl<T> Map3D<T> {
 		}
 	}
 
+	/// Converts 3D iterable into Map3D.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Map3D;
+	///
+	/// let map: Map3D<i32> = Map3D::from_nested(
+	/// 	[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+	/// );
+	///
+	/// assert_eq!(map.get((0, 0, 0)), Some(&1));
+	/// assert_eq!(map.get((0, 1, 0)), Some(&3));
+	/// ```
 	#[allow(dead_code)]
 	pub fn from_nested<I1, I2, I3>(vecs: I3) -> Self
 		where I1: IntoIterator<Item = T>,

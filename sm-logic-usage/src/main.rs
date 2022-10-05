@@ -4,11 +4,11 @@ use sm_logic::bind::Bind;
 use sm_logic::combiner::*;
 use sm_logic::scheme::Scheme;
 use sm_logic::positioner::ManualPos;
-use sm_logic::util::GateMode::{AND, OR, XOR};
-use sm_logic::util::Facing;
+use sm_logic::shape::vanilla::GateMode::{AND, OR, XOR};
+use sm_logic::util::{Facing, Rot};
 
 fn main() {
-	match test().compile() {
+	match test(32, 32, 32).compile() {
 		Err(e) => println!("Fail: {:?}", e),
 		Ok((scheme, invalid_acts)) => {
 			println!("\nInvalid conns:");
@@ -44,17 +44,28 @@ fn main() {
 	}
 }
 
-fn test() -> Combiner<ManualPos> {
-	let adder = adder(8);
+fn test(step: u32, size_x: u32, size_y: u32) -> Combiner<ManualPos> {
 	let mut combiner = Combiner::pos_manual();
+	let size_x = size_x as i32;
+	let size_y = size_y as i32;
+	let step = step as i32;
 
-	for i in 0..4 {
-		combiner.add(format!("{}", i), adder.clone()).unwrap();
-		combiner.pos().place_last((0, 0, i * 2));
-		combiner.pos().rotate_last((0, 0, i));
-		combiner.pass_input(format!("{}_a", i), format!("{}/a", i), None as Option<String>).unwrap();
-		combiner.pass_input(format!("{}_b", i), format!("{}/b", i), None as Option<String>).unwrap();
-		combiner.pass_output(format!("{}", i), format!("{}", i), None as Option<String>).unwrap();
+	for x in 0..size_x {
+		for y in 0..size_y {
+			combiner.add(format!("{}_{}_1", x, y), AND).unwrap();
+			combiner.pos().place_last((x * step, 0, y * step));
+
+			combiner.add(format!("{}_{}_2", x, y), AND).unwrap();
+			combiner.pos().place_last((x * step, step * (size_x + size_y) / 2, y * step));
+
+			for cx in -8..8 {
+				for cy in -8..8 {
+					let cx = (((x + cx) % size_x) + size_x) % size_x;
+					let cy = (((y + cy) % size_y) + size_y) % size_y;
+					combiner.connect(format!("{}_{}_1", x, y), format!("{}_{}_2", cx, cy));
+				}
+			}
+		}
 	}
 
 	combiner

@@ -10,6 +10,30 @@ use std::ops::RemAssign;
 use std::ops::Sub;
 use std::ops::SubAssign;
 
+/// Simple Vector of three elements.
+///
+/// +, -, *, / operations are just corresponding operations on eachs
+/// pair of coordinates separately
+///
+/// # Example
+/// ```
+/// # use crate::sm_logic::util::Vec3;
+/// let vec_a: Vec3<i32> = Vec3::new(1, 2, 3);
+/// let vec_b: Vec3<i32> = Vec3::new(4, 5, 6);
+///
+/// assert_eq!(*vec_a.x(), 1);
+/// assert_eq!(*vec_a.y(), 2);
+/// assert_eq!(*vec_a.z(), 3);
+///
+/// assert_eq!(vec_b[0], 4);
+/// assert_eq!(vec_b[1], 5);
+/// assert_eq!(vec_b[2], 6);
+///
+/// assert_eq!(vec_a + vec_b, Vec3::new(5_i32, 7_i32, 9_i32));
+/// assert_eq!(vec_a - vec_b, Vec3::new(-3_i32, -3_i32, -3_i32));
+/// assert_eq!(vec_a * vec_b, Vec3::new(4_i32, 10_i32, 18_i32));
+/// assert_eq!(vec_a / vec_b, Vec3::new(0_i32, 0_i32, 0_i32));
+/// ```
 pub struct Vec3<N> {
 	x: N,
 	y: N,

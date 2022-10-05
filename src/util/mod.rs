@@ -1,3 +1,6 @@
+//! Crate with widely useful stuff, like [`Vec3`], [`Map3D`] or
+//! rotation matrices ([`Rot`]).
+
 mod vec3;
 mod map3d;
 mod rot;
@@ -7,10 +10,6 @@ pub use vec3::Vec3;
 pub use map3d::Map3D;
 pub use rot::*;
 pub use mat3::Mat3x3;
-
-use crate::scheme::Scheme;
-use crate::shape::Shape;
-use crate::shape::vanilla::Gate;
 
 pub type Bounds = Vec3<u32>;
 pub type Point = Vec3<i32>;
@@ -41,42 +40,7 @@ pub fn get_output_color(input_id: usize) -> String {
 	OUTPUTS_PALETTE[input_id % OUTPUTS_PALETTE.len()].to_string()
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum GateMode {
-	AND,
-	OR,
-	XOR,
-	NAND,
-	NOR,
-	XNOR,
-}
-
-impl GateMode {
-	pub fn to_number(self) -> usize {
-		match self {
-			GateMode::AND => 0,
-			GateMode::OR => 1,
-			GateMode::XOR => 2,
-			GateMode::NAND => 3,
-			GateMode::NOR => 4,
-			GateMode::XNOR => 5,
-		}
-	}
-}
-
-impl Into<Shape> for GateMode {
-	fn into(self) -> Shape {
-		Gate::new(self)
-	}
-}
-
-impl Into<Scheme> for GateMode {
-	fn into(self) -> Scheme {
-		let shape: Shape = self.into();
-		shape.into()
-	}
-}
-
+/// Returns true if each coordinate lies in the `0..bound` range
 pub fn is_point_in_bounds(point: Point, bounds: Bounds) -> bool {
 	*point.x() >= 0 &&
 		*point.y() >= 0 &&
@@ -86,12 +50,35 @@ pub fn is_point_in_bounds(point: Point, bounds: Bounds) -> bool {
 		*point.z() < (*bounds.z() as i32)
 }
 
-pub fn split_path(path: String) -> Vec<String> {
-	path.split("/")
-		.map(|s| s.to_string())
-		.collect()
-}
-
+/// Splits string at the first '/' (slash) symbol and returns
+/// (all the symbols before, all the symbols after). The '/' (slash)
+/// symbol itself is being dropped.
+///
+/// # Example
+/// ```
+/// # use crate::sm_logic::util::split_first_token;
+/// let string = "This/could be/literally///any/$path$$$".to_string();
+/// let (token, tail) = split_first_token(string);
+/// assert_eq!(token, "This".to_string());
+/// assert_eq!(tail, Some("could be/literally///any/$path$$$".to_string()));
+///
+/// ```
+///
+/// # Example
+/// ```
+/// # use crate::sm_logic::util::split_first_token;
+/// let no_tail_1 = "There is no tail/".to_string();
+/// let no_tail_2 = "There is no tail".to_string();
+///
+/// let (token, tail) = split_first_token(no_tail_1);
+/// assert_eq!(token, "There is no tail".to_string());
+/// assert_eq!(tail, Some("".to_string()));
+///
+/// let (token, tail) = split_first_token(no_tail_2);
+/// assert_eq!(token, "There is no tail".to_string());
+/// assert_eq!(tail, None);
+///
+/// ```
 pub fn split_first_token(path: String) -> (String, Option<String>) {
 	match path.find("/") {
 		None => (path, None),

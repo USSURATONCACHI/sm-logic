@@ -79,7 +79,7 @@ impl Shape {
 	///
 	/// # Example
 	/// ```
-	/// # use sm_logic::util::GateMode;
+	/// # use sm_logic::shape::vanilla::GateMode;
 	/// # use crate::sm_logic::shape::Shape;
 	/// # use crate::sm_logic::shape::vanilla::Gate;
 	/// let mut shape = Gate::new(GateMode::AND);

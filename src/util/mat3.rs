@@ -5,12 +5,34 @@ use std::ops::Add;
 use std::ops::Sub;
 use crate::util::Vec3;
 
+/// Mathematical matrix with size 3 by 3. Contains numbers of type `i32`
+///
+/// # Example
+/// ```
+/// # use crate::sm_logic::util::Mat3x3;
+///
+/// let mat = Mat3x3::unit(7);
+/// assert_eq!(mat.det(), 7 * 7 * 7);
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mat3x3 {
 	values: [[i32; 3]; 3],
 }
 
 impl Mat3x3 {
+	/// Creates matrix with all values set to `fill_with` value.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Mat3x3;
+	/// let mat = Mat3x3::new(42);
+	///
+	/// for i in 0..3 {
+	/// 	for j in 0..3 {
+	/// 		assert_eq!(mat[i][j], 42);
+	/// 	}
+	/// }
+	/// ```
 	pub fn new(fill_with: i32) -> Self {
 		let n = fill_with;
 		Mat3x3 {
@@ -22,8 +44,19 @@ impl Mat3x3 {
 		}
 	}
 
-	pub fn unit(det: i32) -> Self {
-		let d = det;
+	/// Creates matrix with main diagonal values equal to passed value,
+	/// and all other values equal to zero.
+	/// Determinant of such matrix will be equal to `val * val * val`
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Mat3x3;
+	///
+	/// let mat = Mat3x3::unit(7);
+	/// assert_eq!(mat.det(), 7 * 7 * 7);
+	/// ```
+	pub fn unit(val: i32) -> Self {
+		let d = val;
 		Mat3x3 {
 			values:  [
 				[d, 0, 0],
@@ -33,12 +66,40 @@ impl Mat3x3 {
 		}
 	}
 
+	/// Creates matrix from raw data.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Mat3x3;
+	///
+	/// let mat = Mat3x3::from_raw(
+	/// [
+	/// 	[7, 0, 0],
+	/// 	[0, 7, 0],
+	/// 	[0, 0, 7]
+	/// ]);
+	/// assert_eq!(mat.det(), 7 * 7 * 7);
+	/// ```
 	pub fn from_raw(values: [[i32; 3]; 3]) -> Self {
 		Mat3x3 {
 			values
 		}
 	}
 
+	/// Calculates determinant of the matrix.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::util::Mat3x3;
+	///
+	/// let mat = Mat3x3::from_raw(
+	/// [
+	/// 	[1, 2, 3],
+	/// 	[8, 9, 4],
+	/// 	[7, 14, 5]
+	/// ]);
+	/// assert_eq!(mat.det(), 384);
+	/// ```
 	pub fn det(&self) -> i32 {
 		self[0][0] * self[1][1] * self[2][2] +
 		self[0][1] * self[1][2] * self[2][0] +
@@ -51,6 +112,10 @@ impl Mat3x3 {
 }
 
 impl Mat3x3 {
+	/// Creates matrix of rotation around X axis.
+	/// Each angle unit is equal to `90 deg`.
+	///
+	/// `rot_x_mat(7)` means rotation around X axis for `7 * 90 deg`
 	pub fn rot_x_mat(ax: i32) -> Mat3x3 {
 		Mat3x3::from_raw([
 			[1, 0, 0],
@@ -59,6 +124,10 @@ impl Mat3x3 {
 		])
 	}
 
+	/// Creates matrix of rotation around Y axis.
+	/// Each angle unit is equal to `90 deg`.
+	///
+	/// `rot_y_mat(7)` means rotation around Y axis for `7 * 90 deg`
 	pub fn rot_y_mat(ay: i32) -> Mat3x3 {
 		Mat3x3::from_raw([
 			[quarter_cos(ay), 0, quarter_sin(ay)],
@@ -67,6 +136,10 @@ impl Mat3x3 {
 		])
 	}
 
+	/// Creates matrix of rotation around Z axis.
+	/// Each angle unit is equal to `90 deg`.
+	///
+	/// `rot_z_mat(7)` means rotation around Z axis for `7 * 90 deg`
 	pub fn rot_z_mat(az: i32) -> Mat3x3 {
 		Mat3x3::from_raw([
 			[quarter_cos(az), -quarter_sin(az),  0],
@@ -75,6 +148,12 @@ impl Mat3x3 {
 		])
 	}
 
+	/// Creates matrix of rotation around three axes.
+	/// X, then Y, then Z - rotation order
+	/// Each angle unit is equal to `90 deg`.
+	///
+	/// `rot_mat(7, 0, 2)` means rotation around X axis for `7 * 90 deg`
+	/// and then around Z axis for `2 * 90 deg`
 	pub fn rot_mat(ax: i32, ay: i32, az: i32) -> Mat3x3 {
 		Mat3x3::rot_z_mat(az) *
 		Mat3x3::rot_y_mat(ay) *
