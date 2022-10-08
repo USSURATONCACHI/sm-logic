@@ -1,7 +1,7 @@
 use json::{JsonValue, object};
 use crate::scheme::Scheme;
 use crate::shape::{out_conns_to_controller, Shape, ShapeBase, ShapeBuildData};
-use crate::util::{Bounds, TICKS_PER_SECOND};
+use crate::util::{Bounds, Rot, TICKS_PER_SECOND};
 
 
 pub const DEFAULT_TIMER_COLOR: &str = "df7f00";
@@ -81,6 +81,10 @@ impl ShapeBase for Timer {
 
 	fn has_output(&self) -> bool {
 		true
+	}
+
+	fn offset_rot(&self) -> Rot {
+		Rot::new(0, 0, 0)
 	}
 }
 

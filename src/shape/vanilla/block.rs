@@ -1,7 +1,7 @@
 use json::{JsonValue, object};
 use crate::scheme::Scheme;
 use crate::shape::{Shape, ShapeBase, ShapeBuildData};
-use crate::util::Bounds;
+use crate::util::{Bounds, Facing, Rot};
 
 /// Describes all the blocks of Scrap Mechanic, that is accessible in creative.
 #[derive(Debug, Clone, Copy)]
@@ -180,6 +180,15 @@ impl BlockBody {
 
 impl ShapeBase for BlockBody {
 	fn build(&self, data: ShapeBuildData) -> JsonValue {
+		// It is either i am really stupid, or Scrap Mechanic block bodies have bugs with rotation.
+		// Rotation for 180 deg rotates it 90 deg and adds wild position offset?
+		// Rotation 90 deg does nothing except position offset?
+		// Y and -Z axes are swapped?
+		// Rotation around X axis actually rotates it around Z axis?
+		// But not always?
+		// I suspect, that it might work just fine, but my correction for
+		// regular shapes rotation system breaks it.
+		// Nevertheless, i just gonna fix it
 		let (xaxis, zaxis, offset) = data.rot.to_sm_data();
 		let (x, y, z) = (data.pos + offset).tuple();
 		let bounds = self.size.tuple();
@@ -215,6 +224,10 @@ impl ShapeBase for BlockBody {
 
 	fn has_output(&self) -> bool {
 		false
+	}
+
+	fn offset_rot(&self) -> Rot {
+		Rot::new(0, 1, 0)
 	}
 }
 

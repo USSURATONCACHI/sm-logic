@@ -7,3 +7,4 @@ pub mod shape;
 pub mod positioner;
 pub mod bind;
 pub mod presets;
+pub mod bp_manager;

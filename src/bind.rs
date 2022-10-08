@@ -153,6 +153,14 @@ impl Bind {
 		Ok(())
 	}
 
+	/// Generates a sector for each point of slot with given names.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 10, 1));
+	/// bind.gen_point_sectors("logic", |x, y, z| format!("{}_{}", x, y)).unwrap();
+	/// ```
 	pub fn gen_point_sectors<S1, S2, F>(&mut self, kind: S1, names: F) -> Result<(), Vec<SectorError>>
 		where S1: Into<String>,
 			  S2: Into<String>,
