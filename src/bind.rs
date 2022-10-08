@@ -152,6 +152,40 @@ impl Bind {
 		self.sectors.push((name, corner, bounds, kind.into()));
 		Ok(())
 	}
+
+	pub fn gen_point_sectors<S1, S2, F>(&mut self, kind: S1, names: F) -> Result<(), Vec<SectorError>>
+		where S1: Into<String>,
+			  S2: Into<String>,
+			  F: Fn(u32, u32, u32) -> S2,
+	{
+		let (size_x, size_y, size_z) = self.bounds().tuple();
+		let kind = kind.into();
+		let mut errors: Vec<SectorError> = vec![];
+
+		for x in 0..size_x {
+			for y in 0..size_y {
+				for z in 0..size_z {
+					let res = self.add_sector(
+						names(x, y, z),
+						(x as i32, y as i32, z as i32),
+						(1, 1, 1),
+						kind.clone()
+					);
+
+					match res {
+						Ok(()) => {}
+						Err(e) => errors.push(e),
+					}
+				}
+			}
+		}
+
+		if errors.len() == 0 {
+			Ok(())
+		} else {
+			Err(errors)
+		}
+	}
 }
 
 impl Bind {

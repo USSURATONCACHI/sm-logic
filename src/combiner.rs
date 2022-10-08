@@ -279,6 +279,8 @@ pub struct Combiner<P: Positioner> {
 
 	inputs: Vec<Bind>,
 	outputs: Vec<Bind>,
+
+	conns_overflow_allowed: bool,
 }
 
 impl Combiner<ManualPos> {
@@ -297,6 +299,7 @@ impl<P: Positioner> Combiner<P> {
 			positioner,
 			inputs: vec![],
 			outputs: vec![],
+			conns_overflow_allowed: false,
 		}
 	}
 
@@ -313,6 +316,10 @@ impl<P: Positioner> Combiner<P> {
 	/// ```
 	pub fn pos(&mut self) -> &mut P {
 		&mut self.positioner
+	}
+
+	pub fn allow_conns_overflow(&mut self) {
+		self.conns_overflow_allowed = true;
 	}
 }
 
@@ -961,7 +968,7 @@ fn compile_connection(from: (usize, &Slot, &SlotSector),
 	for (start, end) in p2p_conns {
 		if !is_point_in_bounds(start, from.2.bounds) ||
 			!is_point_in_bounds(from_offset + start, from.1.bounds()) ||
-			!is_point_in_bounds(end, from.2.bounds) ||
+			!is_point_in_bounds(end, to.2.bounds) ||
 			!is_point_in_bounds(to_offset + end, to.1.bounds())
 		{
 			continue;

@@ -6,3 +6,4 @@ pub mod slot;
 pub mod shape;
 pub mod positioner;
 pub mod bind;
+pub mod presets;
