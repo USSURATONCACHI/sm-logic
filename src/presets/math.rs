@@ -1,6 +1,6 @@
 use crate::bind::Bind;
 use crate::combiner::Combiner;
-use crate::connection::{ConnDim, Connection, ConnMap};
+use crate::connection::ConnMap;
 use crate::scheme::Scheme;
 use crate::shape::vanilla::{BlockBody, BlockType, GateMode};
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};

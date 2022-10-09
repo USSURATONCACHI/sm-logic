@@ -1,10 +1,9 @@
 use std::io;
-use std::path::{Path, PathBuf};
-use json::JsonValue;
+use std::path::PathBuf;
 
-type Error = ();
+use json::{JsonValue, object};
+use uuid::Uuid;
 
-// C:\Users\redch\AppData\Roaming\Axolot Games\Scrap Mechanic\User\User_76561198288016737\Blueprints
 /// Blueprint manager
 pub struct BPManager {
 	folder: PathBuf,
@@ -27,7 +26,7 @@ impl BPManager {
 		&self.folder
 	}
 
-	pub fn save<S>(&self, name: S, blueprint: JsonValue, overwrite_if_exists: bool) -> Result<(), String>
+	pub fn save<S>(&self, name: S, blueprint: JsonValue, overwrite_if_exists: bool) -> io::Result<bool>
 		where S: Into<String>
 	{
 		let name = name.into();
@@ -35,16 +34,41 @@ impl BPManager {
 		match self.get_bp_folder(&name) {
 			Some(path) => {
 				if !overwrite_if_exists {
-					return Err(format!("Blueprint '{}' already exists, overwriting is proibited", name));
+					return Ok(false);
 				}
+				let folder_name = path.file_name().unwrap().to_str().unwrap();
+				println!("Overwriting '{}'", folder_name);
+				self.generate_bp(folder_name.into(), name, blueprint)?;
+				Ok(true)
 			}
 
 			None => {
-
+				self.generate_bp(Uuid::new_v4().to_string().into(), name, blueprint)?;
+				Ok(true)
 			}
 		}
+	}
 
-		;Ok(())
+	fn generate_bp(&self, folder_name: PathBuf, name: String, bp: JsonValue) -> io::Result<()> {
+		let blueprint_path = self.folder.join(folder_name.clone()).join("blueprint.json");
+		let blueprint = bp.to_string();
+
+		let description_path = self.folder.join(folder_name.clone()).join("description.json");
+		let description = object! {
+			"description" : "#{STEAM_WORKSHOP_NO_DESCRIPTION}",
+		   "localId" : folder_name.to_str().unwrap(),
+		   "name" : name,
+		   "type" : "Blueprint",
+		   "version" : 0
+		}.to_string();
+
+		if !self.folder.join(folder_name.clone()).exists() {
+			std::fs::create_dir(self.folder.join(self.folder.join(folder_name.clone())))?;
+		}
+
+		std::fs::write(blueprint_path, blueprint)?;
+		std::fs::write(description_path, description)?;
+		Ok(())
 	}
 
 	pub fn get_bp_folder<S>(&self, name: S) -> Option<PathBuf>
@@ -56,14 +80,15 @@ impl BPManager {
 		for dir in all_dirs {
 			let dir = match dir {
 				Ok(entry) => entry,
-				Err(_) => continue,
+				Err(_) => {
+					continue;
+				},
 			};
 
 			if !dir.path().is_dir() {
 				continue;
 			}
 
-			//let blueprint_file = dir.path().join("blueprint.json");
 			let descr_file = dir.path().join("description.json");
 
 			if !descr_file.is_file() || !descr_file.exists() {
@@ -78,24 +103,48 @@ impl BPManager {
 			};
 
 			let description = json::parse(&description);
-			let description = if description.is_err() {
+			let mut description = if description.is_err() {
 				continue;
 			} else {
 				description.unwrap()
 			};
 
-			if description.contains("name") &&
-				description["name"].eq(&bp_name) {
-				return Some(dir.path());
+			if description.has_key("name") &&
+				description["name"].is_string() {
+				let check_name = description["name"].take_string().unwrap();
+
+				if check_name.eq(&bp_name) {
+					return Some(dir.path());
+				}
 			}
 		}
 
 		None
 	}
 
-	pub fn set_description<S1, S2>(&self, name: S1, description: S2) -> Result<(), Error>
+	pub fn set_description<S1, S2>(&self, name: S1, description: S2) -> Result<(), String>
 		where S1: Into<String>, S2: Into<String>
 	{
-		todo!()
+		let name = name.into();
+		let description = description.into();
+
+		match self.get_bp_folder(&name) {
+			Some(folder) => {
+				let descr_path = folder.join("description.json");
+				let description = object! {
+					"description" : description,
+				   	"localId" : folder.file_name().unwrap().to_str().unwrap(),
+				   	"name" : name,
+				   	"type" : "Blueprint",
+				   	"version" : 0
+				}.to_string();
+
+				std::fs::write(descr_path, description).unwrap();
+
+				Ok(())
+			}
+
+			None => Err(format!("Blueprint '{}' does not exists", name))
+		}
 	}
 }

@@ -1,7 +1,8 @@
 use json::{JsonValue, object};
+
 use crate::scheme::Scheme;
 use crate::shape::{Shape, ShapeBase, ShapeBuildData};
-use crate::util::{Bounds, Facing, Rot};
+use crate::util::{Bounds, Rot};
 
 /// Describes all the blocks of Scrap Mechanic, that is accessible in creative.
 #[derive(Debug, Clone, Copy)]
