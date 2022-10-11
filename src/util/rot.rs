@@ -54,6 +54,18 @@ impl Rot {
 		}
 	}
 
+	pub fn from_chain<R, I>(rots: I) -> Rot
+		where R: Into<Rot>, I: IntoIterator<Item = R>
+	{
+		let mut rot = Rot::new(0, 0, 0);
+
+		for add in rots {
+			rot = add.into().apply_to_rot(rot);
+		}
+
+		rot
+	}
+
 	/// Creates [`Rot`] from tuple of axes rotations
 	///
 	/// # Example
@@ -138,74 +150,115 @@ impl Rot {
 
 	/// Converts [`Rot`] to [`Facing`] + [`Orient`] pair.
 	pub fn to_facing_orient(&self) -> (Facing, Orient) {
-		let z_axis = self.apply((0, 0, 1).into());
-		let x_axis = self.apply((1, 0, 0).into());
+		use Facing::*;
+		use Orient::*;
 
-		let facing =
-			if *z_axis.z() == 1 		{ Facing::PosZ }
-			else if *z_axis.z() == -1 	{ Facing::NegZ }
-			else if *z_axis.y() == 1 	{ Facing::PosY }
-			else if *z_axis.y() == -1 	{ Facing::NegY }
-			else if *z_axis.x() == 1 	{ Facing::PosX }
-			else if *z_axis.x() == -1 	{ Facing::NegX }
-			else { panic!("Incorrect rotations") };
+		let z_axis = self.apply((0, 0, 1).into()).tuple();
+		let x_axis = self.apply((1, 0, 0).into()).tuple();
 
-		if *x_axis.x() == 1 {
-			return (facing, Orient::Up);
-		} else if *x_axis.x() == -1 {
-			return (facing, Orient::Down);
+		return match z_axis {
+			(0, 0, 1) => match x_axis {	// PosZ
+				(0, 1, 0) => (PosZ, Left),
+				(0,-1, 0) => (PosZ, Right),
+				(1, 0, 0) => (PosZ, Up),
+				(-1,0, 0) => (PosZ, Down),
+				_ => panic!("Rot works incorrectly"),
+			},
+
+			(0, 1, 0) => match x_axis {	// PosY
+				(0, 0, 1) => (PosY, Up),
+				(0, 0,-1) => (PosY, Down),
+				(1, 0, 0) => (PosY, Left),
+				(-1,0, 0) => (PosY, Right),
+				_ => panic!("Rot works incorrectly"),
+			},
+
+			(1, 0, 0) => match x_axis {	// PosX
+				(0, 0, 1) => (PosX, Up),
+				(0, 0,-1) => (PosX, Down),
+				(0, 1, 0) => (PosX, Right),
+				(0,-1, 0) => (PosX, Left),
+				_ => panic!("Rot works incorrectly"),
+			},
+
+			(0, 0,-1) => match x_axis {	// NegZ
+				(0, 1, 0) => (NegZ, Right),
+				(0,-1, 0) => (NegZ, Left),
+				(1, 0, 0) => (NegZ, Up),
+				(-1,0, 0) => (NegZ, Down),
+				_ => panic!("Rot works incorrectly"),
+			},
+
+			(0,-1, 0) => match x_axis {	// NegY
+				(0, 0, 1) => (NegY, Up),
+				(0, 0,-1) => (NegY, Down),
+				(1, 0, 0) => (NegY, Right),
+				(-1,0, 0) => (NegY, Left),
+				_ => panic!("Rot works incorrectly"),
+			},
+
+			(-1,0, 0) => match x_axis {	// NegX
+				(0, 0, 1) => (NegX, Up),
+				(0, 0,-1) => (NegX, Down),
+				(0, 1, 0) => (NegX, Left),
+				(0,-1, 0) => (NegX, Right),
+				_ => panic!("Rot works incorrectly"),
+			},
+			_ => panic!("Rot works incorrectly"),
+		};
+	}
+
+	pub fn from_facing_orient(facing: Facing, orient: Orient) -> Self {
+		let sr = match orient {
+			Orient::Up => 		0,
+			Orient::Right => 	1,
+			Orient::Down => 	2,
+			Orient::Left => 	3,
+		};
+
+		match facing {
+			Facing::PosX => Rot::from_chain([(0, 1, 0), (2, 0, 0), (-sr, 0, 0)]),
+			Facing::PosY => Rot::from_chain([(-1, 0, 0), (0, -1, 0), (0, -sr, 0)]),
+			Facing::PosZ => Rot::new(0, 0, -sr),
+			Facing::NegX => Rot::from_chain([(0, -1, 0), (sr, 0, 0)]),
+			Facing::NegY => Rot::from_chain([(1, 0, 0), (0, -1, 0), (0, sr, 0)]),
+			Facing::NegZ => Rot::from_chain([(0, 2, 0), (0, 0, 2), (0, 0, sr)]),
 		}
-
-		if *x_axis.z() == 1 {
-			return (facing, Orient::Up);
-		} else if *x_axis.z() == -1 {
-			return (facing, Orient::Down);
-		}
-
-		if *x_axis.y() == 1 {
-			return match facing {
-				Facing::PosZ | Facing::NegX =>
-					(facing, Orient::Right),
-				_ => (facing, Orient::Left),
-			}
-		} else if *x_axis.y() == -1 {
-			return match facing {
-				Facing::PosZ | Facing::NegX =>
-					(facing, Orient::Left),
-				_ => (facing, Orient::Right),
-			}
-		}
-
-		panic!("Incorrect rotations");
 	}
 }
 
 ///[(xaxis, zaxis, offset_x, offset_y, offset_z)]
 const ROTATIONS_DATA: [(i32, i32, i32, i32, i32); 24] = [
 	( 1, -2, 0,  0, 0),		// PosZ + Up
-	(-2, -1, 1,  0, 0),		// PosZ + Down
-	(-1,  2, 1, -1, 0),		// PosZ + Left
-	( 2,  1, 0, -1, 0),		// PosZ + Right
+	(-2, -1, 1,  0, 0),		// PosZ + Right
+	(-1,  2, 1, -1, 0),		// PosZ + Down
+	( 2,  1, 0, -1, 0),		// PosZ + Left
+
 	( 3, -1, 1, -1, 0),		// PosY + Up
-	(-1, -3, 1, -1, 1),		// PosY + Down
-	(-3,  1, 0, -1, 1),		// PosY + Left
-	( 1,  3, 0, -1, 0),		// PosY + Right
+	(-1, -3, 1, -1, 1),		// PosY + Right
+	(-3,  1, 0, -1, 1),		// PosY + Down
+	( 1,  3, 0, -1, 0),		// PosY + Left
+
 	( 3,  2, 0, -1, 0),		// PosX + Up
-	( 2, -3, 0, -1, 1),		// PosX + Down
-	(-3, -2, 0,  0, 1),		// PosX + Left
-	(-2,  3, 0,  0, 0),		// PosX + Right
+	( 2, -3, 0, -1, 1),		// PosX + Right
+	(-3, -2, 0,  0, 1),		// PosX + Down
+	(-2,  3, 0,  0, 0),		// PosX + Left
+
 	( 1,  2, 0, -1, 1),		// NegZ + Up
-	( 2, -1, 1, -1, 1),		// NegZ + Down
-	(-1, -2, 1,  0, 1),		// NegZ + Left
-	(-2,  1, 0,  0, 1),		// NegZ + Right
+	( 2, -1, 1, -1, 1),		// NegZ + Right
+	(-1, -2, 1,  0, 1),		// NegZ + Down
+	(-2,  1, 0,  0, 1),		// NegZ + Left
+
 	( 3,  1, 0,  0, 0),		// NegY + Up
-	( 1, -3, 0,  0, 1),		// NegY + Down
-	(-3, -1, 1,  0, 1),		// NegY + Left
-	(-1,  3, 1,  0, 0),		// NegY + Right
+	( 1, -3, 0,  0, 1),		// NegY + Right
+	(-3, -1, 1,  0, 1),		// NegY + Down
+	(-1,  3, 1,  0, 0),		// NegY + Left
+
+	// Done
 	( 3, -2, 1,  0, 0),		// NegX + Up
-	(-2, -3, 1,  0, 1),		// NegX + Down
-	(-3,  2, 1, -1, 1),		// NegX + Left
-	( 2,  3, 1, -1, 0),		// NegX + Right
+	(-2, -3, 1,  0, 1),		// NegX + Right
+	(-3,  2, 1, -1, 1),		// NegX + Down
+	( 2,  3, 1, -1, 0),		// NegX + Left
 ];
 
 /// Represents one of basic six directions in 3D space.
@@ -254,9 +307,9 @@ impl Facing {
 
 		let orient_id = match orient {
 			Orient::Up => 0,
-			Orient::Down => 1,
-			Orient::Left => 2,
-			Orient::Right => 3,
+			Orient::Right => 1,
+			Orient::Down => 2,
+			Orient::Left => 3,
 		};
 
 		ROTATIONS_DATA[facing_id * 4 + orient_id]

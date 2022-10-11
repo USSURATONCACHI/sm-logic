@@ -1,7 +1,7 @@
 use json::{JsonValue, object};
 use crate::scheme::Scheme;
 use crate::shape::{out_conns_to_controller, Shape, ShapeBase, ShapeBuildData};
-use crate::util::{Bounds, Rot};
+use crate::util::Bounds;
 
 pub const DEFAULT_GATE_COLOR: &str = "df7f00";
 pub const GATE_UUID: &str = "9f0f56e8-2c31-4d83-996c-d00a9b296c3f";
@@ -141,9 +141,5 @@ impl ShapeBase for Gate {
 
 	fn has_output(&self) -> bool {
 		true
-	}
-
-	fn offset_rot(&self) -> Rot {
-		Rot::new(0, 0, 0)
 	}
 }

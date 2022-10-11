@@ -28,8 +28,6 @@ pub trait ShapeBase: DynClone + Debug {
 	fn size(&self) -> Bounds;
 	fn has_input(&self) -> bool;
 	fn has_output(&self) -> bool;
-
-	fn offset_rot(&self) -> Rot;
 }
 dyn_clone::clone_trait_object!(ShapeBase);
 
@@ -126,7 +124,7 @@ impl Shape {
 			out_conns: &self.out_conns,
 			color: &self.color,
 			pos,
-			rot: self.base.offset_rot().apply_to_rot(rot),
+			rot,
 			id
 		};
 
@@ -150,7 +148,7 @@ impl Into<Scheme> for Shape {
 		let output = if self.has_output() { vec![slot] }  else { vec![] };
 
 		Scheme::create(
-			vec![(Point::new_ng(0, 0, 0), self.base.offset_rot(), self)],
+			vec![(Point::new_ng(0, 0, 0), Rot::new(0, 0, 0), self)],
 			input, output,
 		)
 	}

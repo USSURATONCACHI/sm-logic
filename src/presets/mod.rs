@@ -1,11 +1,5 @@
 pub mod math;
 
-// Feature ideas:
-// Scheme position shift
-// Scheme part move (slot move)?
-// Force paint slot of scheme
-// Fix BlockBody
-
 // Basic math:
 // adder - done
 // inverter - done
