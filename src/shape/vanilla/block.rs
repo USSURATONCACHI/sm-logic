@@ -2,7 +2,7 @@ use json::{JsonValue, object};
 
 use crate::scheme::Scheme;
 use crate::shape::{Shape, ShapeBase, ShapeBuildData};
-use crate::util::{Bounds, Point, Vec3};
+use crate::util::{Bounds, Vec3};
 
 /// Describes all the blocks of Scrap Mechanic, that is accessible in creative.
 #[derive(Debug, Clone, Copy)]
@@ -184,8 +184,15 @@ impl ShapeBase for BlockBody {
 		let (xaxis, zaxis, offset) = data.rot.to_sm_data();
 		let (bx, by, bz) = self.size.tuple();
 
-		// let y_axis = data.rot.apply(Vec3::new_ng(0, *self.size.y() as i32, 0));
 		let (x, y, z) = (data.pos + offset).tuple();
+
+		// This offset is needed, because in SM block bounds have different
+		// default angles from logic gates. So this offset and bounds size axes swap
+		// fixes the issue.
+		// With this, in rotation (0, 0, 0) X size is directed towards X axis,
+		// Y size towards Y axis, and Z size towards Z axis.
+		let body_offset = data.rot.apply(Vec3::new_ng(0, (by as i32) - 1, 0));
+		let body_offset = body_offset.tuple();
 
 		object!{
 			"color": match data.color {
@@ -196,14 +203,14 @@ impl ShapeBase for BlockBody {
 			"xaxis": xaxis,
 			"zaxis": zaxis,
 			"pos": {
-				"x": x,
-				"y": y,
-				"z": z,
+				"x": x + body_offset.0,
+				"y": y + body_offset.1,
+				"z": z + body_offset.2,
 			},
 			"bounds": {
 				"x": bx,
-				"y": by,
-				"z": bz,
+				"y": bz,	// Swapped purposefully
+				"z": by,
 			},
 		}
 	}
