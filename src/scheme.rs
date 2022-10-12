@@ -2,7 +2,7 @@ use json::{JsonValue, object};
 use crate::shape::Shape;
 use crate::slot::{Slot, SlotSector};
 use crate::util;
-use crate::util::Bounds;
+use crate::util::{Bounds};
 use crate::util::split_first_token;
 use crate::util::Rot;
 use crate::util::Point;
@@ -116,9 +116,31 @@ impl Scheme {
 		self.bounds.clone()
 	}
 
+	/// Sets color of every shape to a given color.
+	/// Basically just fills everything with color.
+	pub fn full_paint<S: Into<String>>(&mut self, color: S) {
+		let color = color.into();
+
+		for (_, _, shape) in &mut self.shapes {
+			shape.set_color(&color);
+		}
+	}
+
+	/// Only paints shapes with default color. If a shape was painted
+	/// before, its color won't change.
+	pub fn soft_paint<S: Into<String>>(&mut self, color: S) {
+		let color = color.into();
+
+		for (_, _, shape) in &mut self.shapes {
+			if shape.get_color().is_none() {
+				shape.set_color(&color);
+			}
+		}
+	}
+
 	/// Shifts, rotates and offsets controller ids, then returns raw data:
 	///
-	/// shapes, inputs, outputs
+	/// (shapes, inputs, outputs)
 	pub fn disassemble(mut self, start_shape: usize, pos: Point, rot: Rot) -> (Vec<(Point, Rot, Shape)>, Vec<Slot>, Vec<Slot>) {
 		let (start, _) = self.calculate_bounds();
 

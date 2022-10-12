@@ -274,6 +274,8 @@ pub struct ConnCase {
 #[derive(Debug, Clone)]
 pub struct Combiner<P: Positioner> {
 	schemes: HashMap<String, Scheme>,
+	last_scheme: Option<String>,
+
 	connections: Vec<ConnCase>,
 	positioner: P,
 
@@ -295,6 +297,7 @@ impl<P: Positioner> Combiner<P> {
 	pub fn new(positioner: P) -> Self {
 		Combiner {
 			schemes: HashMap::new(),
+			last_scheme: None,
 			connections: vec![],
 			positioner,
 			inputs: vec![],
@@ -316,6 +319,20 @@ impl<P: Positioner> Combiner<P> {
 	/// ```
 	pub fn pos(&mut self) -> &mut P {
 		&mut self.positioner
+	}
+
+	pub fn last_scheme(&self) -> Option<&Scheme> {
+		match &self.last_scheme {
+			None => None,
+			Some(name) => self.schemes.get(name),
+		}
+	}
+
+	pub fn last_scheme_mut(&mut self) -> Option<&mut Scheme> {
+		match &self.last_scheme {
+			None => None,
+			Some(name) => self.schemes.get_mut(name),
+		}
 	}
 
 	pub fn allow_conns_overflow(&mut self) {
@@ -351,6 +368,7 @@ impl<P: Positioner> Combiner<P> {
 
 		if self.schemes.get(&name).is_none() {
 			self.schemes.insert(name.clone(), scheme.into());
+			self.last_scheme = Some(name.clone());
 			self.pos().set_last_scheme(name);
 			Ok(())
 		} else {

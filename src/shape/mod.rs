@@ -100,6 +100,13 @@ impl Shape {
 		self.color = Some(color.into());
 	}
 
+	/// Returns the color of the shape.
+	/// `None` means default color,
+	/// `Some(color)` means the actual color.
+	pub fn get_color(&self) -> &Option<String> {
+		&self.color
+	}
+
 	/// Mutable getter.
 	pub fn connections_mut(&mut self) -> &mut Vec<usize> {
 		&mut self.out_conns
