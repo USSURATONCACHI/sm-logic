@@ -113,7 +113,7 @@ fn adder_segment(from: i32, to: i32, max_size: u32) -> Scheme {
 	let glass_prev = from.max(0).min(max_size as i32);
 
 	if glass_prev > 0 {
-		combiner.add("glass_pre", BlockBody::new(BlockType::Glass, (1, 1, 1))).unwrap();
+		combiner.add("glass_pre", BlockBody::new(BlockType::Glass, (1, glass_prev as u32, 1))).unwrap();
 		combiner.pos().place_last((0, 0, 0));
 	}
 

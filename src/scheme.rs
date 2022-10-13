@@ -1,8 +1,8 @@
 use json::{JsonValue, object};
 use crate::shape::Shape;
 use crate::slot::{Slot, SlotSector};
-use crate::util;
 use crate::util::{Bounds};
+use crate::util::palette::{input_color, output_color};
 use crate::util::split_first_token;
 use crate::util::Rot;
 use crate::util::Point;
@@ -157,23 +157,54 @@ impl Scheme {
 	}
 
 	/// Converts [`Scheme`] to JSON blueprint.
-	pub fn to_json(mut self) -> JsonValue {
+	pub fn to_json(self) -> JsonValue {
+		self.to_json_custom_colors(input_color, output_color)
+	}
+
+	/// Converts [`Scheme`] to JSON blueprint.
+	pub fn to_json_custom_colors<P1, P2>(mut self, inputs_palette: P1, outputs_palette: P2) -> JsonValue
+		where P1: Fn(u32, Point) -> String,
+				P2: Fn(u32, Point) -> String,
+	{
 		let mut array: Vec<JsonValue> = Vec::new();
 
+		// Slot
 		for (i, bind) in self.inputs.into_iter().enumerate() {
-			for vec in bind.shape_map().as_raw() {
-				for id in vec {
-					let (_, _, shape) = &mut self.shapes[*id];
-					shape.set_color(util::get_input_color(i));
+			let map_size: (i32, i32, i32) = bind.shape_map().bounds().cast().tuple();
+
+			// Point of slot
+			for x in 0..map_size.0 {
+				for y in 0..map_size.1 {
+					for z in 0..map_size.2 {
+						// All the connections of the point
+						for vec in bind.shape_map().get((x as usize, y as usize, z as usize)) {
+							// Connection of the point
+							for id in vec {
+								let (_, _, shape) = &mut self.shapes[*id];
+								shape.set_color(inputs_palette(i as u32, (x, y, z).into()));
+							}
+						}
+					}
 				}
 			}
 		}
 
 		for (i, bind) in self.outputs.into_iter().enumerate() {
-			for vec in bind.shape_map().as_raw() {
-				for id in vec {
-					let (_, _, shape) = &mut self.shapes[*id];
-					shape.set_color(util::get_output_color(i));
+			let map_size: (i32, i32, i32) = bind.shape_map().bounds().cast().tuple();
+
+			// Point of slot
+			for x in 0..map_size.0 {
+				for y in 0..map_size.1 {
+					for z in 0..map_size.2 {
+						// All the connections of the point
+						for vec in bind.shape_map().get((x as usize, y as usize, z as usize)) {
+							// Connection of the point
+							for id in vec {
+								let (_, _, shape) = &mut self.shapes[*id];
+								shape.set_color(outputs_palette(i as u32, (x, y, z).into()));
+							}
+						}
+					}
 				}
 			}
 		}
@@ -192,6 +223,90 @@ impl Scheme {
 		};
 		obj["bodies"][0]["childs"] = array;
 		obj
+	}
+
+
+	fn _nobounds_remove_shape(&mut self, id: usize) {
+		let _ = self.shapes.remove(id);
+
+		for (_, _, shape) in self.shapes.iter_mut() {
+			let mut conns_count = shape.connections().len();
+			let mut i = 0;
+
+			while i < conns_count {
+				let connection = shape.connections()[i];
+				if connection == id {
+					shape.connections_mut().remove(i);
+					conns_count -= 1;
+				} else if connection > id {
+					shape.connections_mut()[i] -= 1;
+					i += 1;
+				} else {
+					i += 1;
+				}
+			}
+		}
+
+		for input in &mut self.inputs {
+			input.shape_was_removed(id);
+		}
+
+		for output in &mut self.outputs {
+			output.shape_was_removed(id);
+		}
+	}
+
+	pub fn remove_unused(&mut self) {
+		// used = connected to output
+		let mut is_used: Vec<bool> = self.shapes.iter().map(
+			|(_, _, shape)| !shape.has_output()
+		).collect();
+
+		// in the first place, all shapes connected to output are used
+		for slot in self.outputs.iter() {
+			for point in slot.shape_map().as_raw() {
+				for connection in point {
+					if *connection < is_used.len() {
+						is_used[*connection] = true;
+					}
+				}
+			}
+		}
+
+		// Then "usefulness" spreads to other shapes in reverse iteratively
+		let mut new_used = 0;
+		loop {
+			for (id, (_, _, shape)) in self.shapes.iter().enumerate() {
+				if let Some(false) = is_used.get(id) {
+					for connection in shape.connections() {
+						// If the shape is connected to used shape, "usefulness" spreads
+						if let Some(true) = is_used.get(*connection) {
+							is_used[id] = true;
+							new_used = 1;
+						}
+					}
+				}
+			}
+
+			if new_used == 0 {
+				break;
+			}
+			new_used = 0;
+		}
+
+		// Then all unused shapes get deleted
+		for i in (0..is_used.len()).rev() {
+			if is_used[i] == false {
+				self._nobounds_remove_shape(i);
+			}
+		}
+
+		// Check bounds, those might have been updated
+		self.set_bounds();
+	}
+
+	pub fn set_force_used(&mut self) {
+
 	}
 }
 

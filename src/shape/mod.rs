@@ -107,6 +107,12 @@ impl Shape {
 		&self.color
 	}
 
+
+	/// Immutable getter.
+	pub fn connections(&self) -> &Vec<usize> {
+		&self.out_conns
+	}
+
 	/// Mutable getter.
 	pub fn connections_mut(&mut self) -> &mut Vec<usize> {
 		&mut self.out_conns

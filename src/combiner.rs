@@ -8,7 +8,7 @@ use crate::scheme;
 use crate::scheme::Scheme;
 use crate::shape::Shape;
 use crate::slot::{Slot, SlotSector};
-use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, Rot, split_first_token};
+use crate::util::{Bounds, is_point_in_bounds, Point, Rot, split_first_token};
 
 /// Container for all invalid actions performed on the Combiner.
 #[derive(Debug, Clone)]
@@ -377,6 +377,35 @@ impl<P: Positioner> Combiner<P> {
 				taken_name: name,
 			})
 		}
+	}
+
+	pub fn add_pass_all<N, S, I, O>(&mut self, name: N, scheme: S, inputs_names: I, outputs_names: O) -> Result<(), Error>
+		where N: Into<String>,
+			  S: Into<Scheme>,
+				I: Fn(&String) -> String,
+				O: Fn(&String) -> String,
+	{
+		let name = name.into();
+		let scheme = scheme.into();
+
+		// bind name, target name
+		let inputs: Vec<(String, String)> = scheme.inputs().iter()
+			.map(|slot| (inputs_names(slot.name()), slot.name().clone()) ).collect();
+
+		let outputs: Vec<(String, String)> = scheme.outputs().iter()
+			.map(|slot| (outputs_names(slot.name()), slot.name().clone()) ).collect();
+
+		self.add(&name, scheme)?;
+
+		for (bind_name, target_name) in inputs {
+			self.pass_input(bind_name, format!("{}/{}", &name, target_name), None as Option<String>)?;
+		}
+
+		for (bind_name, target_name) in outputs {
+			self.pass_output(bind_name, format!("{}/{}", &name, target_name), None as Option<String>)?;
+		}
+
+		Ok(())
 	}
 
 	/// Adds all the (name, scheme) pairs passed to the combiner.
@@ -776,7 +805,6 @@ impl<P: Positioner> Combiner<P> {
 		self.bind_output(bind)
 	}
 
-
 	fn parse_pass_data(&self, name: String, path: String, new_kind: Option<String>, side: SlotSide) -> Result<Bind, Error> {
 		let (scheme_name, slot_name) = split_first_token(path.clone());
 		let slot_name = match slot_name {
@@ -816,6 +844,7 @@ impl<P: Positioner> Combiner<P> {
 
 		let mut bind = Bind::new(name, kind, sector.bounds);
 		bind.connect_full(path);
+
 		Ok(bind)
 	}
 }
@@ -843,31 +872,29 @@ impl<P: Positioner> Combiner<P> {
 		-> Result<(), Error>
 		where N: Into<String>, K: Into<String>, B: Into<Bounds>, S: Into<Shape>, R: Into<Rot>
 	{
-		let main_shape = from_shape.into();
 		let shape_rot = shape_rot.into();
-		let mut shapes: Vec<(Point, Rot, Shape)> = vec![];
+		let mut main_shape: Scheme = from_shape.into().into();
+		main_shape.rotate(shape_rot.clone());
 
-		let bounds = bounds.into();
-		let bounds_tuple = bounds.tuple();
-		let mut map: Map3D<Vec<usize>> = Map3D::filled(bounds.cast().tuple(), vec![]);
+		let bounds = bounds.into().tuple();
+		let mut combiner = Combiner::pos_manual();
+		let mut slot = Bind::new("_", slot_kind, bounds);
 
-		for x in 0..bounds_tuple.0 {
-			for y in 0..bounds_tuple.1 {
-				for z in 0..bounds_tuple.2 {
+		for x in 0..bounds.0 {
+			for y in 0..bounds.1 {
+				for z in 0..bounds.2 {
+					let name = format!("{}_{}_{}", x, y, z);
+					combiner.add(&name, main_shape.clone()).unwrap();
 					let pos = Point::new(x as i32, y as i32, z as i32);
-					// TODO: make the function take in account shape_rot while calculating shape bounds.
-					shapes.push((pos * main_shape.bounds().cast(), shape_rot.clone(), main_shape.clone()));
+					combiner.pos().place_last(pos * main_shape.bounds().cast());
 
-					let id = x + y * bounds_tuple.0 + z * bounds_tuple.0 * bounds_tuple.1;
-					map.get_mut((x as usize, y as usize, z as usize))
-						.unwrap()
-						.push(id as usize);
+					slot.connect(((x as i32, y as i32, z as i32), (1, 1, 1)), name);
 				}
 			}
 		}
-
-		let slot = Slot::new("_".to_string(), slot_kind.into(), bounds, map);
-		let scheme = Scheme::create(shapes, vec![slot.clone()], vec![slot]);
+		combiner.bind_input(slot.clone()).unwrap();
+		combiner.bind_output(slot).unwrap();
+		let (scheme, _) = combiner.compile().unwrap();
 
 		self.add(name, scheme)
 	}
