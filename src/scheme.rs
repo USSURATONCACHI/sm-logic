@@ -259,7 +259,7 @@ impl Scheme {
 	pub fn remove_unused(&mut self) {
 		// used = connected to output
 		let mut is_used: Vec<bool> = self.shapes.iter().map(
-			|(_, _, shape)| !shape.has_output()
+			|(_, _, shape)| shape.is_forcibly_used()
 		).collect();
 
 		// in the first place, all shapes connected to output are used
@@ -305,8 +305,16 @@ impl Scheme {
 		self.set_bounds();
 	}
 
-	pub fn set_force_used(&mut self) {
+	pub fn set_forcibly_used(&mut self) {
+		for (_, _, shape) in &mut self.shapes {
+			shape.set_forcibly_used();
+		}
+	}
 
+	pub fn unset_forcibly_used(&mut self) {
+		for (_, _, shape) in &mut self.shapes {
+			shape.unset_forcibly_used();
+		}
 	}
 }
 

@@ -50,6 +50,10 @@ pub enum Error {
 		pass_side: SlotSide,
 		tip: String,
 	},
+
+	NoSuchScheme {
+		name: String,
+	}
 }
 
 /// Container for single connection with all of its parameters
@@ -337,6 +341,38 @@ impl<P: Positioner> Combiner<P> {
 
 	pub fn allow_conns_overflow(&mut self) {
 		self.conns_overflow_allowed = true;
+	}
+}
+
+impl<P: Positioner> Combiner<P> {
+	pub fn set_forcibly_used<N>(&mut self, name: N) -> Result<(), Error>
+		where N: Into<String>
+	{
+		let name = name.into();
+
+		match self.schemes.get_mut(&name) {
+			Some(scheme) => {
+				scheme.set_forcibly_used();
+				Ok(())
+			}
+
+			None => Err(Error::NoSuchScheme { name })
+		}
+	}
+
+	pub fn unset_forcibly_used<N>(&mut self, name: N) -> Result<(), Error>
+		where N: Into<String>
+	{
+		let name = name.into();
+
+		match self.schemes.get_mut(&name) {
+			Some(scheme) => {
+				scheme.unset_forcibly_used();
+				Ok(())
+			}
+
+			None => Err(Error::NoSuchScheme { name })
+		}
 	}
 }
 

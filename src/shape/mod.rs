@@ -58,6 +58,8 @@ pub struct Shape {
 	base: Box<dyn ShapeBase>,
 	out_conns: Vec<usize>,
 	color: Option<String>,
+
+	forcibly_used: bool,
 }
 
 impl Shape {
@@ -66,6 +68,7 @@ impl Shape {
 			base,
 			out_conns: Vec::new(),
 			color: None,
+			forcibly_used: false,
 		}
 	}
 
@@ -142,6 +145,18 @@ impl Shape {
 		};
 
 		self.base.build(data)
+	}
+
+	pub fn is_forcibly_used(&self) -> bool {
+		self.forcibly_used
+	}
+
+	pub fn set_forcibly_used(&mut self) {
+		self.forcibly_used = true;
+	}
+
+	pub fn unset_forcibly_used(&mut self) {
+		self.forcibly_used = false;
 	}
 }
 
