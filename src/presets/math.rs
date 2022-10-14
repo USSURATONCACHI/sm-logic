@@ -1,10 +1,11 @@
 use crate::bind::Bind;
 use crate::combiner::Combiner;
 use crate::connection::ConnMap;
+use crate::positioner::ManualPos;
+use crate::presets::shapes_cube;
 use crate::scheme::Scheme;
-use crate::shape::vanilla::{BlockBody, BlockType, GateMode};
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
-use crate::util::{Facing, Point, Rot};
+use crate::util::{Facing, Point};
 
 pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	let size = bits_before_point + bits_after_point;
@@ -13,194 +14,149 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 
 	let slots_kind = format!("binary[{}.{}]", bits_before_point, bits_after_point);
 
-	let line = gates_line(OR, size, &slots_kind, Facing::NegX.to_rot());
-	combiner.add("a", line.clone()).unwrap();
-	combiner.pos().place_last((0, 0, 0));
-	combiner.pass_input("a", "a", None as Option<String>).unwrap();
+	combiner.add_shapes_cube("a", (size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.pos().place_last((-2, 0, 0));
+	combiner.pos().rotate_last((0, 0, 1));
+	combiner.pass_input("a", "a", Some(slots_kind.clone())).unwrap();
 
-	combiner.add("b", line.clone()).unwrap();
-	combiner.pos().place_last((0, 0, 1));
-	combiner.pass_input("b", "b", None as Option<String>).unwrap();
+	combiner.add_shapes_cube("b", (size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.pos().place_last((-2, 0, 1));
+	combiner.pos().rotate_last((0, 0, 1));
+	combiner.pass_input("b", "b", Some(slots_kind.clone())).unwrap();
 
-	let mut prev_step: Vec<(i32, i32, String)> = vec![];
+	// Actually, regular multiplier is pretty easy to create, BUT i
+	// added a lot of gates usage optimizations here, and so the
+	// function is really big
 
-	for i in 0..(size as i32) {
-		let offset = (i as i32) - (bits_after_point as i32);
-		let line = line_segment(
-			offset, offset + (size as i32), size,
-			AND, &slots_kind, Facing::NegX.to_rot()
-		);
+	// start bit, end bit, path to each bit
+	let mut prev_step: Vec<(u32, Vec<String>)> = vec![];
 
+	// at first, multiply A by each digit of B separately
+	for i in 0..size {
+		// CREATE ROW SCHEME
+		let line_start = (i as i32) - (bits_after_point as i32);
+		let line_end = (line_start + (size as i32)).min(size as i32);
+
+		let mut line = shapes_cube((size, 1, 1), AND, Facing::PosY.to_rot());
+		let start_point = line.calculate_bounds().0.x().clone();	// calculate bounds -> start point -> x
+		line.filter_shapes(|pos, _, _| *pos.x() >= line_start && *pos.x() < line_end);
+		let offset = line.calculate_bounds().0.x().clone() - start_point;
+
+		// ADD ROW TO TABLE
 		let name = format!("table_{}", i);
-		combiner.add(&name, line).unwrap();
-		combiner.pos().place_last((1, 0, i as i32));
+		let start = offset;
+		let end = offset + (*line.bounds().x() as i32);
+		let bits = (start..end).map(|bit_id| format!("{}/_/{}_0_0", name, bit_id)).collect();
+		prev_step.push((start as u32, bits));
 
+		// ADD ROW TO SCHEME
+		combiner.add(&name, line).unwrap();
+		combiner.pos().rotate_last((0, 0, 1));
+		combiner.pos().place_last((-1, offset, i as i32));
+
+		let conn_offset = (i as i32) - (bits_after_point as i32);
 		combiner.custom("a", &name, ConnMap::new(
-			move |(point, _), _| Some(point + Point::new_ng(offset, 0, 0))
+			move |(point, _), _| Some(point + Point::new_ng(conn_offset, 0, 0))
 		));
 
-		combiner.dim(format!("b/_/{}", i), &name, (true, true, true));
-		prev_step.push((offset, offset + (size as i32), name));
+		combiner.dim(format!("b/_/{}_0_0", i), &name, (true, true, true));
+
 	}
 
-
+	// Then, add up all results
 	let mut iteration = 0;
 	while prev_step.len() > 1 {
-		let mut i = 0;
-		let mut step: Vec<(i32, i32, String)> = vec![];
-		let mut collection = prev_step.into_iter();
-
-		'iteration: loop {
-			let slot_a = collection.next();
-			let slot_b = collection.next();
-
-			if slot_a.is_none() {
-				break 'iteration;
-			}
-			let slot_a = slot_a.unwrap();
-
-			match slot_b {
-				Some(slot_b) => {
-					let (min_a, max_a, slot_a) = slot_a;
-					let (min_b, max_b, slot_b) = slot_b;
-					let min = min_a.min(min_b);
-					let max = max_a.max(max_b);
-
-					let adder = adder_segment(min, max, size);
-					let adder_size = adder.bounds().cast::<i32>().tuple();
-
-					let name = format!("adder_{}_{}", iteration, i);
-					combiner.add(&name, adder.clone()).unwrap();
-					combiner.pos().place_last((2 + iteration * adder_size.0, 0, i * adder_size.2));
-
-
-					combiner.connect(slot_a, format!("{}/a", name));
-					combiner.connect(slot_b, format!("{}/b", name));
-					step.push((min, max, name));
-				}
-
-				None => step.push(slot_a)
-			}
-			i += 1;
-		}
-		prev_step = step;
+		prev_step = add_rows_once(iteration, &mut combiner, prev_step);
 		iteration += 1;
 	}
 
-	match prev_step.len() {
-		1 => {
-			let (_, _, path) = prev_step.get(0).unwrap();
-			combiner.pass_output("_", path, Some(slots_kind)).unwrap();
-		}
-		0 => {
-			combiner.bind_output(Bind::new("_", slots_kind, (size, 1, 1))).unwrap();
-		}
-		_ => panic!("Something went wrong"),
-	}
+	// bind output
+	let mut bind = Bind::new("_", slots_kind, (size, 1, 1));
 
-	let (scheme, _) = combiner.compile().unwrap();
-	scheme
+	if prev_step.len() == 1 {
+		let (start, bits) = prev_step.into_iter().next().unwrap();
+
+		for (bit_id, bit) in bits.into_iter().enumerate() {
+			let bit_id = bit_id as i32 + start as i32;
+			bind.connect(((bit_id as i32, 0, 0), (1, 1, 1)), bit);
+		}
+	}
+	bind.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
+	combiner.bind_output(bind).unwrap();
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	return scheme;
 }
 
-fn adder_segment(from: i32, to: i32, max_size: u32) -> Scheme {
-	let size = (to - from.max(0)).max(0).min((max_size as i32) - from.max(0));
-	let adder = adder(size as u32);
+fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: Vec<(u32, Vec<String>)>) -> Vec<(u32, Vec<String>)> {
+	const ADDER_X_SIZE: i32 = 4;
+	const ADDER_Z_SIZE: i32 = 2;
 
-	let mut combiner = Combiner::pos_manual();
-	combiner.add("adder", adder).unwrap();
-	combiner.pos().place_last((0, from.max(0), 0));
+	let mut iter = rows_map.into_iter();
+	let mut new_step: Vec<(u32, Vec<String>)> = vec![];
+	let mut adder_id = 0;
+	'main: loop {
+		let (a_start, a_bits) = match iter.next() {
+			None => break 'main,
+			Some(word) => word,
+		};
 
-	let glass_prev = from.max(0).min(max_size as i32);
+		match iter.next() {
+			Some((b_start, b_bits)) => {
+				// add A and B up
+				let new_row_start = a_start.min(b_start);
+				let adder_start = a_start.max(b_start);
+				let end = (a_start + a_bits.len() as u32)
+								.max(b_start + b_bits.len() as u32);
 
-	if glass_prev > 0 {
-		let mut body: Scheme = BlockBody::new(BlockType::Glass, (1, glass_prev as u32, 1)).into();
-		body.set_forcibly_used();
-		combiner.add("glass_pre", body).unwrap();
-		combiner.pos().place_last((0, 0, 0));
-	}
+				let adder_size = (end - adder_start) as u32;
+				let adder = adder(adder_size);
+				let name = format!("adder_{}_{}", iteration, adder_id);
+				combiner.add(&name, adder).unwrap();
+				combiner.pos().place_last((iteration * ADDER_X_SIZE, adder_start as i32, adder_id * ADDER_Z_SIZE));
 
-	let offset = from.max(0);
-	let mut inp_a = Bind::new("a", "binary", (max_size, 1, 1));
-	inp_a.connect_func(|x, _, _| Some(format!("adder/a/{}", (x as i32) - offset)));
+				let new_row_size = (end - new_row_start) as usize;
+				let mut new_row: Vec<String> = Vec::with_capacity(new_row_size);
 
-	let mut inp_b = Bind::new("b", "binary", (max_size, 1, 1));
-	inp_b.connect_func(|x, _, _| Some(format!("adder/b/{}", (x as i32) - offset)));
+				// Add bits that does not need to be added
+				for bit in new_row_start..adder_start {
+					if bit < a_start {
+						// add bit from B
+						new_row.push(b_bits[(bit - b_start) as usize].clone());
+					} else {
+						// add bit from A
+						new_row.push(a_bits[(bit - a_start) as usize].clone());
+					}
+				}
 
-	let mut output = Bind::new("_", "binary", (max_size, 1, 1));
-	output.connect_func(|x, _, _| Some(format!("adder/_/{}", (x as i32) - offset)));
+				for bit in adder_start..end {
+					let a_bit_id = (bit - a_start) as usize;
+					if a_bit_id < a_bits.len() {
+						let a_bit_path = a_bits[a_bit_id].clone();
+						combiner.connect(a_bit_path, format!("{}/a/{}", name, bit - adder_start));
+					}
 
-	combiner.bind_input(inp_a).unwrap();
-	combiner.bind_input(inp_b).unwrap();
-	combiner.bind_output(output).unwrap();
+					let b_bit_id = (bit - b_start) as usize;
+					if b_bit_id < b_bits.len() {
+						let b_bit_path = b_bits[b_bit_id].clone();
+						combiner.connect(b_bit_path, format!("{}/b/{}", name, bit - adder_start));
+					}
 
-	let (scheme, _) = combiner.compile().unwrap();
-	scheme
-}
+					new_row.push(format!("{}/_/{}", name, bit - adder_start));
+				}
 
-fn line_segment<R: Into<Rot>, S: Into<String>>(
-	from: i32, to: i32, max_size: u32,
-	mode: GateMode, slot_kind: S, rot: R
-) -> Scheme {
-	let mut combiner = Combiner::pos_manual();
-	let rot = rot.into();
-	let slot_kind = slot_kind.into();
+				new_step.push((new_row_start, new_row));
+				adder_id += 1;
+			}
 
-	let mut input = Bind::new("_", &slot_kind, (max_size, 1, 1));
-	input.connect_func(|x, _, _| Some(format!("{}", x)));
-
-	let mut output = Bind::new("_", slot_kind, (max_size, 1, 1));
-	output.connect_func(|x, _, _| Some(format!("{}", x)));
-
-	for i in 0..max_size {
-		let i = i as i32;
-
-		if i >= from && i < to {
-			let name = format!("{}", i);
-			combiner.add(&name, mode).unwrap();
-
-			input.add_sector(&name, (i as i32, 0, 0), (1, 1, 1), "bit").unwrap();
-			output.add_sector(name, (i as i32, 0, 0), (1, 1, 1), "bit").unwrap();
-		} else {
-			let name = format!("_{}", i);
-			combiner.add(&name, BlockBody::new(BlockType::Glass, (1, 1, 1))).unwrap();
+			None => {
+				// just pass A through
+				new_step.push((a_start, a_bits));
+			}
 		}
-		combiner.pos().place_last((0, i as i32, 0));
-		combiner.pos().rotate_last(rot.clone());
 	}
 
-	combiner.bind_input(input).unwrap();
-	combiner.bind_output(output).unwrap();
-
-	let (scheme, _) = combiner.compile().unwrap();
-	scheme
-}
-
-fn gates_line<R: Into<Rot>, S: Into<String>>(mode: GateMode, size: u32, slot_kind: S, rot: R) -> Scheme {
-	let mut combiner = Combiner::pos_manual();
-	let rot = rot.into();
-	let slot_kind = slot_kind.into();
-
-	let mut input = Bind::new("_", &slot_kind, (size, 1, 1));
-	input.connect_func(|x, _, _| Some(format!("{}", x)));
-
-	let mut output = Bind::new("_", slot_kind, (size, 1, 1));
-	output.connect_func(|x, _, _| Some(format!("{}", x)));
-
-	for i in 0..size {
-		let name = format!("{}", i);
-		combiner.add(&name, mode).unwrap();
-		combiner.pos().place_last((0, i as i32, 0));
-		combiner.pos().rotate_last(rot.clone());
-
-		input.add_sector(&name, (i as i32, 0, 0), (1, 1, 1), "bit").unwrap();
-		output.add_sector(name, (i as i32, 0, 0), (1, 1, 1), "bit").unwrap();
-	}
-
-	combiner.bind_input(input).unwrap();
-	combiner.bind_output(output).unwrap();
-
-	let (scheme, _) = combiner.compile().unwrap();
-	scheme
+	new_step
 }
 
 #[allow(dead_code)]

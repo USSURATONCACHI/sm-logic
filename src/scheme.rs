@@ -45,6 +45,15 @@ impl Scheme {
 		scheme
 	}
 
+	pub fn empty() -> Self {
+		Scheme {
+			shapes: vec![],
+			inputs: vec![],
+			outputs: vec![],
+			bounds: (0, 0, 0).into(),
+		}
+	}
+
 	/// Rotates whole Scheme / rotates every [`Shape`] of it.
 	pub fn rotate(&mut self, rot: Rot) {
 		let global_rot = rot;
@@ -146,7 +155,7 @@ impl Scheme {
 
 		for (shape_pos, shape_rot, shape) in &mut self.shapes {
 			*shape_rot = rot.apply_to_rot(shape_rot.clone());
-			*shape_pos = pos - start + rot.apply(shape_pos.clone());
+			*shape_pos = pos + rot.apply(*shape_pos - start);
 
 			for connection in shape.connections_mut() {
 				*connection += start_shape;
@@ -225,8 +234,30 @@ impl Scheme {
 		obj
 	}
 
+	pub fn filter_shapes<F>(&mut self, filter: F)
+		where F: Fn(&Point, &Rot, &Shape) -> bool
+	{
+		let mut passed_shapes: Vec<bool> = vec![];
 
-	fn _nobounds_remove_shape(&mut self, id: usize) {
+		for (pos, rot, shape) in &self.shapes {
+			passed_shapes.push(filter(pos, rot, shape))
+		}
+
+		for i in (0..passed_shapes.len()).rev() {
+			if !passed_shapes[i] {
+				self.no_bounds_remove_shape(i);
+			}
+		}
+
+		self.set_bounds();
+	}
+
+	pub fn remove_shape(&mut self, id: usize) {
+		self.no_bounds_remove_shape(id);
+		self.set_bounds()
+	}
+
+	pub fn no_bounds_remove_shape(&mut self, id: usize) {
 		let _ = self.shapes.remove(id);
 
 		for (_, _, shape) in self.shapes.iter_mut() {
@@ -297,7 +328,7 @@ impl Scheme {
 		// Then all unused shapes get deleted
 		for i in (0..is_used.len()).rev() {
 			if is_used[i] == false {
-				self._nobounds_remove_shape(i);
+				self.no_bounds_remove_shape(i);
 			}
 		}
 
@@ -320,7 +351,7 @@ impl Scheme {
 
 impl Scheme {
 	// start, size
-	fn calculate_bounds(&self) -> (Point, Bounds) {
+	pub fn calculate_bounds(&self) -> (Point, Bounds) {
 		if self.shapes.len() == 0 {
 			return ((0, 0, 0).into(), (0, 0, 0).into());
 		}

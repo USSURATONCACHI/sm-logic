@@ -4,6 +4,7 @@ use crate::bind::{Bind, InvalidConn};
 use crate::combiner::Error::{InvalidName, NameWasAlreadyTaken};
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::positioner::{ManualPos, Positioner};
+use crate::presets::shapes_cube;
 use crate::scheme;
 use crate::scheme::Scheme;
 use crate::shape::Shape;
@@ -897,42 +898,17 @@ impl<P: Positioner> Combiner<P> {
 	/// # use crate::sm_logic::combiner::Combiner;
 	/// let mut combiner = Combiner::pos_manual();
 	///
-	/// let res = combiner.create_slot_scheme("inner", "raw_data", (5, 5, 5), GateMode::OR, (0, 0, 0));
+	/// let res = combiner.add_shapes_cube("inner", (5, 5, 5), GateMode::OR, (0, 0, 0));
 	///	assert!(res.is_ok()); // Success
 	///
 	/// let res = combiner.add("inner", GateMode::OR);
 	/// assert!(res.is_err()); // This name is already taken
 	/// ```
-	pub fn create_slot_scheme<N, K, B, S, R>(&mut self, name: N,
-				  slot_kind: K, bounds: B, from_shape: S, shape_rot: R)
+	pub fn add_shapes_cube<N, B, S, R>(&mut self, name: N, bounds: B, from_shape: S, shape_rot: R)
 		-> Result<(), Error>
-		where N: Into<String>, K: Into<String>, B: Into<Bounds>, S: Into<Shape>, R: Into<Rot>
+		where N: Into<String>, B: Into<Bounds>, S: Into<Shape>, R: Into<Rot>
 	{
-		let shape_rot = shape_rot.into();
-		let mut main_shape: Scheme = from_shape.into().into();
-		main_shape.rotate(shape_rot.clone());
-
-		let bounds = bounds.into().tuple();
-		let mut combiner = Combiner::pos_manual();
-		let mut slot = Bind::new("_", slot_kind, bounds);
-
-		for x in 0..bounds.0 {
-			for y in 0..bounds.1 {
-				for z in 0..bounds.2 {
-					let name = format!("{}_{}_{}", x, y, z);
-					combiner.add(&name, main_shape.clone()).unwrap();
-					let pos = Point::new(x as i32, y as i32, z as i32);
-					combiner.pos().place_last(pos * main_shape.bounds().cast());
-
-					slot.connect(((x as i32, y as i32, z as i32), (1, 1, 1)), name);
-				}
-			}
-		}
-		combiner.bind_input(slot.clone()).unwrap();
-		combiner.bind_output(slot).unwrap();
-		let (scheme, _) = combiner.compile().unwrap();
-
-		self.add(name, scheme)
+		self.add(name, shapes_cube(bounds, from_shape, shape_rot))
 	}
 }
 
