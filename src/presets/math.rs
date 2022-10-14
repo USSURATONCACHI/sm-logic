@@ -84,12 +84,13 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	bind.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
 	combiner.bind_output(bind).unwrap();
 
-	let (scheme, _invalid) = combiner.compile().unwrap();
+	let (mut scheme, invalid) = combiner.compile().unwrap();
+	scheme.remove_unused();
 	return scheme;
 }
 
 fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: Vec<(u32, Vec<String>)>) -> Vec<(u32, Vec<String>)> {
-	const ADDER_X_SIZE: i32 = 4;
+	const ADDER_X_SIZE: i32 = 3;
 	const ADDER_Z_SIZE: i32 = 2;
 
 	let mut iter = rows_map.into_iter();
@@ -103,19 +104,33 @@ fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: V
 
 		match iter.next() {
 			Some((b_start, b_bits)) => {
+				// ------###### A; - is empty
+				// ----#####	B
+				// ----||+++>>> A + B; | is pass through, + is add, > is maybe add
 				// add A and B up
 				let new_row_start = a_start.min(b_start);
+				let new_row_end = (a_start + a_bits.len() as u32).max(b_start + b_bits.len() as u32);
 				let adder_start = a_start.max(b_start);
-				let end = (a_start + a_bits.len() as u32)
-								.max(b_start + b_bits.len() as u32);
+				let adder_end = (a_start + a_bits.len() as u32).min(b_start + b_bits.len() as u32);
 
-				let adder_size = (end - adder_start) as u32;
-				let adder = adder(adder_size);
-				let name = format!("adder_{}_{}", iteration, adder_id);
-				combiner.add(&name, adder).unwrap();
+				let adder_size = (adder_end - adder_start) as u32;
+				let adder = adder_compact(adder_size);
+				let adder_name = format!("adder_{}_{}", iteration, adder_id);
+
+				combiner.add(&adder_name, adder).unwrap();
 				combiner.pos().place_last((iteration * ADDER_X_SIZE, adder_start as i32, adder_id * ADDER_Z_SIZE));
 
-				let new_row_size = (end - new_row_start) as usize;
+				let bit_adder_size = new_row_end - adder_end;
+				let bit_adder_name = format!("zero_one_{}_{}", iteration, adder_id);
+				if bit_adder_size > 0 {
+					let bit_adder = _add_0_or_1(bit_adder_size);
+
+					combiner.add(&bit_adder_name, bit_adder).unwrap();
+					combiner.pos().place_last((iteration * ADDER_X_SIZE, adder_end as i32, adder_id * ADDER_Z_SIZE));
+					combiner.connect(format!("{}/carry_bit", adder_name), format!("{}/bit", bit_adder_name));
+				}
+
+				let new_row_size = (new_row_end - new_row_start) as usize;
 				let mut new_row: Vec<String> = Vec::with_capacity(new_row_size);
 
 				// Add bits that does not need to be added
@@ -129,20 +144,38 @@ fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: V
 					}
 				}
 
-				for bit in adder_start..end {
+				// Add all the bits that need to be added
+				for bit in adder_start..adder_end {
 					let a_bit_id = (bit - a_start) as usize;
 					if a_bit_id < a_bits.len() {
 						let a_bit_path = a_bits[a_bit_id].clone();
-						combiner.connect(a_bit_path, format!("{}/a/{}", name, bit - adder_start));
+						combiner.connect(a_bit_path, format!("{}/a/{}", adder_name, bit - adder_start));
 					}
 
 					let b_bit_id = (bit - b_start) as usize;
 					if b_bit_id < b_bits.len() {
 						let b_bit_path = b_bits[b_bit_id].clone();
-						combiner.connect(b_bit_path, format!("{}/b/{}", name, bit - adder_start));
+						combiner.connect(b_bit_path, format!("{}/b/{}", adder_name, bit - adder_start));
 					}
 
-					new_row.push(format!("{}/_/{}", name, bit - adder_start));
+					new_row.push(format!("{}/_/{}", adder_name, bit - adder_start));
+				}
+
+				// Add bits that does not need to be added
+				for bit in adder_end..new_row_end {
+					let a_bit_id = (bit - a_start) as usize;
+					if a_bit_id < a_bits.len() {
+						let a_bit_path = a_bits[a_bit_id].clone();
+						combiner.connect(a_bit_path, format!("{}/data/{}", bit_adder_name, bit - adder_end));
+					}
+
+					let b_bit_id = (bit - b_start) as usize;
+					if b_bit_id < b_bits.len() {
+						let b_bit_path = b_bits[b_bit_id].clone();
+						combiner.connect(b_bit_path, format!("{}/data/{}", bit_adder_name, bit - adder_end));
+					}
+
+					new_row.push(format!("{}/_/{}", bit_adder_name, bit - adder_end));
 				}
 
 				new_step.push((new_row_start, new_row));
@@ -158,6 +191,48 @@ fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: V
 
 	new_step
 }
+
+
+fn _add_0_or_1(word_size: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add("0_or_1", OR).unwrap();
+	combiner.pos().place_last((0, 0, 0));
+	combiner.pos().rotate_last(Facing::NegX.to_rot());
+	combiner.connect("0_or_1", "0_and");
+	combiner.connect("0_or_1", "0_xor");
+
+	let mut bind = Bind::new("bit", "binary", (1, 1, 1));
+	bind.connect_full("0_or_1");
+	combiner.bind_input(bind).unwrap();
+
+	for i in 0..word_size {
+		combiner.add(format!("{}_and", i), AND).unwrap();
+		combiner.pos().place_last((1, i as i32, 0));
+
+		combiner.add(format!("{}_xor", i), XOR).unwrap();
+		combiner.pos().place_last((2, i as i32, 0));
+		combiner.pos().rotate_last(Facing::PosX.to_rot());
+
+		combiner.connect(format!("{}_and", i), format!("{}_and", i + 1));
+		combiner.connect(format!("{}_and", i), format!("{}_xor", i + 1));
+	}
+
+	let mut input = Bind::new("data", "binary", (word_size, 1, 1));
+	input.connect_func(|x, _, _| Some(format!("{}_and", x)));
+	input.connect_func(|x, _, _| Some(format!("{}_xor", x)));
+	input.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
+	combiner.bind_input(input).unwrap();
+
+	let mut output = Bind::new("_", "binary", (word_size, 1, 1));
+	output.connect_func(|x, _, _| Some(format!("{}_xor", x)));
+	output.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
+	combiner.bind_output(output).unwrap();
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	scheme
+}
+
 
 #[allow(dead_code)]
 pub fn inverter(word_size: u32) -> Scheme {
@@ -215,10 +290,19 @@ pub fn inverter(word_size: u32) -> Scheme {
 	scheme
 }
 
+
+
 #[allow(dead_code)]
 pub fn adder(word_size: u32) -> Scheme {
-	let section = adder_section();
+	_adder(word_size, adder_section())
+}
 
+#[allow(dead_code)]
+pub fn adder_compact(word_size: u32) -> Scheme {
+	_adder(word_size, adder_section_compact())
+}
+
+fn _adder(word_size: u32, section: Scheme) -> Scheme {
 	let mut adder = Combiner::pos_manual();
 
 	for i in 0..word_size {
@@ -245,6 +329,10 @@ pub fn adder(word_size: u32) -> Scheme {
 	let mut bind = Bind::new("_", "binary", (word_size, 1u32, 1u32));
 	bind.connect_func(|x, _, _| Some(format!("{}/res", x)));
 	bind.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
+	adder.bind_output(bind).unwrap();
+
+	let mut bind = Bind::new("carry_bit", "bit", (1, 1, 1));
+	bind.connect_full(format!("{}", word_size as i32 - 1));
 	adder.bind_output(bind).unwrap();
 
 	let (scheme, _) = adder.compile().unwrap();
@@ -289,6 +377,55 @@ fn adder_section() -> Scheme {
 	s.connect_iter(["a"], ["and_1", "and_2"]);
 	s.connect_iter(["b"], ["and_2", "and_3"]);
 	s.connect_iter(["_"], ["and_3", "and_1"]);
+
+	let mut bind = Bind::new("_", "bit", (1, 1, 1));
+	bind.connect_full("and_1")
+		.connect_full("and_2")
+		.connect_full("and_3");
+	s.bind_output(bind).unwrap();
+
+	let mut bind = Bind::new("res", "bit", (1, 1, 1));
+	bind.connect_full("res");
+	s.bind_output(bind).unwrap();
+
+	let (scheme, _) = s.compile().unwrap();
+	scheme
+}
+
+fn adder_section_compact() -> Scheme {
+	let mut s = Combiner::pos_manual();
+
+	s.add_mul(["_"], OR).unwrap();
+	s.add_mul(["and_1", "and_2", "and_3"], AND).unwrap();
+	s.add("res", XOR).unwrap();
+
+	s.pos().place_iter([
+		("_", (1, 0, 1)),
+		("and_1", (0, 0, 0)),
+		("and_2", (0, 0, 1)),
+		("and_3", (1, 0, 0)),
+		("res", (2, 0, 0)),
+	]);
+
+	s.pos().rotate("res", Facing::PosX.to_rot());
+
+	let mut bind = Bind::new("a", "bit", (1, 1, 1));
+	bind.connect_full("res");
+	bind.connect_full("and_1");
+	bind.connect_full("and_2");
+	s.bind_input(bind).unwrap();
+
+	let mut bind = Bind::new("b", "bit", (1, 1, 1));
+	bind.connect_full("res");
+	bind.connect_full("and_2");
+	bind.connect_full("and_3");
+	s.bind_input(bind).unwrap();
+
+	let mut bind = Bind::new("_", "bit", (1, 1, 1));
+	bind.connect_full("_");
+	s.bind_input(bind).unwrap();
+
+	s.connect_iter(["_"], ["res", "and_3", "and_1"]);
 
 	let mut bind = Bind::new("_", "bit", (1, 1, 1));
 	bind.connect_full("and_1")
