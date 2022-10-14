@@ -4,6 +4,7 @@ use crate::connection::ConnMap;
 use crate::positioner::ManualPos;
 use crate::presets::shapes_cube;
 use crate::scheme::Scheme;
+use crate::shape::vanilla::BlockType;
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
 use crate::util::{Facing, Point};
 
@@ -27,6 +28,10 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	// Actually, regular multiplier is pretty easy to create, BUT i
 	// added a lot of gates usage optimizations here, and so the
 	// function is really big
+
+	// This multiplier uses about O(n * n * log(n)) gates, where n is
+	// word size. And because it is so big, i added A LOT of gate usage
+	// optimizations to this function.
 
 	// start bit, end bit, path to each bit
 	let mut prev_step: Vec<(u32, Vec<String>)> = vec![];
@@ -84,8 +89,8 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	bind.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
 	combiner.bind_output(bind).unwrap();
 
-	let (mut scheme, invalid) = combiner.compile().unwrap();
-	scheme.remove_unused();
+	let (mut scheme, _invalid) = combiner.compile().unwrap();
+	scheme.replace_unused_with(BlockType::Glass);
 	return scheme;
 }
 
@@ -192,7 +197,6 @@ fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: V
 	new_step
 }
 
-
 fn _add_0_or_1(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
@@ -234,7 +238,6 @@ fn _add_0_or_1(word_size: u32) -> Scheme {
 }
 
 
-#[allow(dead_code)]
 pub fn inverter(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
@@ -292,12 +295,10 @@ pub fn inverter(word_size: u32) -> Scheme {
 
 
 
-#[allow(dead_code)]
 pub fn adder(word_size: u32) -> Scheme {
 	_adder(word_size, adder_section())
 }
 
-#[allow(dead_code)]
 pub fn adder_compact(word_size: u32) -> Scheme {
 	_adder(word_size, adder_section_compact())
 }

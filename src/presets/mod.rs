@@ -6,6 +6,7 @@ use crate::shape::Shape;
 use crate::util::{Bounds, Point, Rot};
 
 pub mod math;
+pub mod memory;
 
 // Basic math:
 // adder - done

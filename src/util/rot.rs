@@ -1,4 +1,4 @@
-use crate::util::Mat3x3;
+use crate::util::{Bounds, Mat3x3};
 use crate::util::Point;
 use crate::util::Vec3;
 

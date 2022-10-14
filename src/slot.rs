@@ -249,7 +249,7 @@ impl Slot {
 		Ok(())
 	}
 
-	pub fn shape_was_removed(&mut self, id: usize) {
+	pub fn shape_was_removed(&mut self, id: usize, id_offset: isize) {
 		for point in self.shape_map_mut().as_raw_mut() {
 			let mut len = point.len();
 			let mut i = 0;
@@ -259,7 +259,7 @@ impl Slot {
 					point.remove(i);
 					len -= 1;
 				} else if point[i] > id {
-					point[i] -= 1;
+					point[i] = (point[i] as isize + id_offset) as usize;
 					i += 1;
 				} else {
 					i += 1;

@@ -1,5 +1,6 @@
 use json::{JsonValue, object};
 use crate::shape::Shape;
+use crate::shape::vanilla::{BlockBody, BlockType};
 use crate::slot::{Slot, SlotSector};
 use crate::util::{Bounds};
 use crate::util::palette::{input_color, output_color};
@@ -258,8 +259,38 @@ impl Scheme {
 	}
 
 	pub fn no_bounds_remove_shape(&mut self, id: usize) {
-		let _ = self.shapes.remove(id);
+		if id >= self.shapes_count() {
+			return;
+		}
 
+		let _ = self.shapes.remove(id);
+		self.delete_connections_to(id, -1);
+	}
+
+	pub fn replace_shape(&mut self, id: usize, with: BlockType) {
+		if id >= self.shapes_count() {
+			return;
+		}
+
+		self.delete_connections_to(id, 0);
+
+		let (_, _, shape) = self.shapes.get_mut(id).unwrap();
+
+		let mut new_shape = BlockBody::new(with, shape.bounds());
+
+		if shape.is_forcibly_used() {
+			new_shape.set_forcibly_used();
+		}
+
+		match shape.get_color() {
+			None => {},
+			Some(color) => new_shape.set_color(color),
+		}
+
+		*shape = new_shape;
+	}
+
+	fn delete_connections_to(&mut self, id: usize, id_offset: isize) {
 		for (_, _, shape) in self.shapes.iter_mut() {
 			let mut conns_count = shape.connections().len();
 			let mut i = 0;
@@ -270,7 +301,7 @@ impl Scheme {
 					shape.connections_mut().remove(i);
 					conns_count -= 1;
 				} else if connection > id {
-					shape.connections_mut()[i] -= 1;
+					shape.connections_mut()[i] = (shape.connections_mut()[i] as isize + id_offset) as usize;
 					i += 1;
 				} else {
 					i += 1;
@@ -279,15 +310,39 @@ impl Scheme {
 		}
 
 		for input in &mut self.inputs {
-			input.shape_was_removed(id);
+			input.shape_was_removed(id, id_offset);
 		}
 
 		for output in &mut self.outputs {
-			output.shape_was_removed(id);
+			output.shape_was_removed(id, id_offset);
 		}
 	}
 
 	pub fn remove_unused(&mut self) {
+		let is_used = self.get_used_shapes();
+
+		// Then all unused shapes get deleted
+		for i in (0..is_used.len()).rev() {
+			if is_used[i] == false {
+				self.no_bounds_remove_shape(i);
+			}
+		}
+
+		// Check bounds, those might have been updated
+		self.set_bounds();
+	}
+
+	pub fn replace_unused_with(&mut self, block: BlockType) {
+		let is_used = self.get_used_shapes();
+
+		for i in (0..is_used.len()).rev() {
+			if is_used[i] == false {
+				self.replace_shape(i, block);
+			}
+		}
+	}
+
+	fn get_used_shapes(&self) -> Vec<bool> {
 		// used = connected to output
 		let mut is_used: Vec<bool> = self.shapes.iter().map(
 			|(_, _, shape)| shape.is_forcibly_used()
@@ -325,15 +380,7 @@ impl Scheme {
 			new_used = 0;
 		}
 
-		// Then all unused shapes get deleted
-		for i in (0..is_used.len()).rev() {
-			if is_used[i] == false {
-				self.no_bounds_remove_shape(i);
-			}
-		}
-
-		// Check bounds, those might have been updated
-		self.set_bounds();
+		is_used
 	}
 
 	pub fn set_forcibly_used(&mut self) {
@@ -361,23 +408,23 @@ impl Scheme {
 
 		for (pos, rot, shape) in self.shapes.iter() {
 			let start = pos.clone();
+			let rot: &Rot = rot;
 
 			// Shapes are being rotated around BLOCK at (0, 0, 0) position.
 			// Not around corner of the block. And so, this "*2-1" is needed to
 			// rotate bounds around center of the first block.
-			let bounds = shape.bounds().cast::<i32>() * 2 - 1;
-			let bounds = (rot.apply(bounds) + 1) / 2;
-			let end = pos.clone() + bounds;
+			let bounds_end = start + (rot.apply(shape.bounds().cast::<i32>() * 2 - 1) + 1) / 2;
+			let bounds_start = start + (rot.apply((-1, -1, -1).into()) + 1) / 2;
 
 			min = fold_coords(
 				min,
-				[start, end],
+				[start, bounds_start, bounds_end],
 				|a, b| if a < b { a } else { b }
 			);
 
 			max = fold_coords(
 				max,
-				[start, end],
+				[start, bounds_start, bounds_end],
 				|a, b| if a > b { a } else { b }
 			);
 		}
