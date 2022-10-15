@@ -1,6 +1,5 @@
-use crate::bind::Bind;
 use crate::combiner::Combiner;
-use crate::presets::Scheme;
+use crate::presets::{binary_selector, Scheme};
 use crate::shape::vanilla::GateMode::*;
 use crate::util::Facing;
 
@@ -42,25 +41,41 @@ pub fn xor_mem_cell(size: u32) -> Scheme {
 }
 
 pub fn array(word_size: u32, size: (u32, u32, u32)) -> Scheme {
+	// NOT FULLY DONE YET
 	let mut combiner = Combiner::pos_manual();
 	let cell = smallest_rw_cell(word_size);
 	let cell_size: (i32, i32, i32) = cell.bounds().cast().tuple();
-	println!("Cell size: {:?} | {:?}", cell_size, cell.calculate_bounds().1);
+	let cells_count = size.0 * size.1 * size.2;
+	let address_size = (cells_count as f64).log2().ceil() as u32;
 
+	let mut all_cells: Vec<String> = vec![];
 	for x in 0..size.0 {
 		for y in 0..size.1 {
 			for z in 0..size.2 {
-				combiner.add(format!("{}_{}_{}", x, y, z), cell.clone()).unwrap();
+				let name = format!("{}_{}_{}", x, y, z);
+				combiner.add(name.clone(), cell.clone()).unwrap();
 				combiner.pos().place_last((
 					x as i32 * cell_size.0,
 					y as i32 * cell_size.1,
 					z as i32 * cell_size.2
 				));
+
+				all_cells.push(name);
 			}
 		}
 	}
 
-	let (scheme, _invalid) = combiner.compile().unwrap();
+	let cell_selector = binary_selector(address_size);
+	combiner.add("address", cell_selector).unwrap();
+	combiner.pos().place_last((-3, 0, 0));
+	combiner.pass_input("address", "address", Some("binary")).unwrap();
+
+	for (i, cell) in all_cells.iter().enumerate() {
+		combiner.connect(format!("address/{}", i), format!("{}/activate", cell));
+	}
+
+	let (scheme, invalid) = combiner.compile().unwrap();
+	println!("Invalid conns: {:?}", invalid.connections);
 	scheme
 }
 
@@ -70,42 +85,33 @@ pub fn array(word_size: u32, size: (u32, u32, u32)) -> Scheme {
 pub fn smallest_rw_cell(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
-	let mut input_bind = Bind::new("write", "binary", (word_size, 1, 1));
-	let mut output_bind = Bind::new("_", "binary", (word_size, 1, 1));
+	combiner.add_shapes_cube("input", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+	combiner.add_shapes_cube("output", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+	combiner.add_shapes_cube("memory", (word_size, 1, 1), XOR, Facing::NegY.to_rot()).unwrap();
 
-	for i in 0..word_size {
-		let input_name = format!("{}_input", i);
-		combiner.add(&input_name, AND).unwrap();
-		combiner.pos().place_last((0, 0, i as i32));
-		combiner.pos().rotate_last(Facing::NegY.to_rot());
-		combiner.connect("activate", &input_name);
-
-		input_bind.connect(((i as i32, 0, 0), (1, 1, 1)), &input_name);
-
-		let output_name = format!("{}_output", i);
-		combiner.add(&output_name, AND).unwrap();
-		combiner.pos().place_last((1, 0, i as i32));
-		combiner.pos().rotate_last(Facing::NegY.to_rot());
-		combiner.connect("activate", &output_name);
-
-		output_bind.connect(((i as i32, 0, 0), (1, 1, 1)), &output_name);
-
-		let xor_name = format!("{}_xor", i);
-		combiner.add(&xor_name, XOR).unwrap();
-		combiner.pos().place_last((2, 0, i as i32));
-		combiner.pos().rotate_last(Facing::NegY.to_rot());
-		combiner.connect(&xor_name, &xor_name);
-		combiner.connect(&input_name, &xor_name);
-		combiner.connect(&xor_name, &output_name);
-	}
+	combiner.connect("input", "memory");
+	combiner.connect_iter(["memory"], ["output", "memory"]);
+	combiner.dim_iter(["activate"], ["input", "output"], (true, true, true));
 
 	combiner.add("activate", AND).unwrap();
-	combiner.pos().place_last((1, 0, word_size as i32));
 	combiner.pos().rotate_last(Facing::NegY.to_rot());
-	combiner.pass_input("activate", "activate", Some("logic")).unwrap();
 
-	combiner.bind_input(input_bind).unwrap();
-	combiner.bind_output(output_bind).unwrap();
+	combiner.pass_input("activate", "activate", Some("logic")).unwrap();
+	combiner.pass_input("data", "input", Some("_")).unwrap();
+	combiner.pass_output("_", "output", Some("_")).unwrap();
+
+	combiner.pos().place_iter([
+		("activate", (1, 0, word_size as i32)),
+		("input", (0, 0, 0)),
+		("output", (1, 0, 0)),
+		("memory", (2, 0, 0)),
+	]);
+
+	combiner.pos().rotate_iter([
+		("input", (0, -1, 0)),
+		("output", (0, -1, 0)),
+		("memory", (0, -1, 0)),
+	]);
 
 	let (scheme, _invalid) = combiner.compile().unwrap();
 	scheme

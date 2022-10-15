@@ -16,6 +16,7 @@ pub type Bounds = Vec3<u32>;
 pub type Point = Vec3<i32>;
 
 pub const TICKS_PER_SECOND: u32 = 40;
+pub const MAX_CONNECTIONS: u32 = 255;
 
 /// Returns true if each coordinate lies in the `0..bound` range
 pub fn is_point_in_bounds(point: Point, bounds: Bounds) -> bool {

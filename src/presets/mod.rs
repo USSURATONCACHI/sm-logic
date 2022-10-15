@@ -3,7 +3,8 @@ use crate::combiner::Combiner;
 use crate::positioner::ManualPos;
 use crate::scheme::Scheme;
 use crate::shape::Shape;
-use crate::util::{Bounds, Point, Rot};
+use crate::shape::vanilla::GateMode::*;
+use crate::util::{Bounds, Facing, MAX_CONNECTIONS, Point, Rot};
 
 pub mod math;
 pub mod memory;
@@ -41,6 +42,64 @@ pub mod memory;
 // Misc:
 // Number table generator
 // Bool table generator
+
+pub fn binary_selector(word_size: u32) -> Scheme {
+	if word_size >= 30 {
+		panic!("Binary selectors for word sizes more than 29 is not supported.");
+	}
+
+	let outputs_count = 2_i64.pow(word_size);
+	let selectors_count = ((outputs_count as f64) / (2.0 * MAX_CONNECTIONS as f64)).ceil() as u32;
+
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add_shapes_cube("input", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.pass_input("_", "input", Some("binary")).unwrap();
+	combiner.pos().place_last((0, 0, 0));
+	combiner.pos().rotate_last((0, 0, 1));
+
+	for i in 0..selectors_count {
+		combiner.add_shapes_cube(format!("sel_pos_{}", i), (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+		combiner.pos().place_last((1, 0, i as i32));
+		combiner.pos().rotate_last((0, 0, 1));
+		combiner.connect("input", format!("sel_pos_{}", i));
+
+		combiner.add_shapes_cube(format!("sel_neg_{}", i), (word_size, 1, 1), NOR, Facing::PosZ.to_rot()).unwrap();
+		combiner.pos().place_last((2, 0, i as i32));
+		combiner.pos().rotate_last((0, 0, 1));
+		combiner.connect("input", format!("sel_neg_{}", i));
+	}
+
+	let mut conns_to_positive: Vec<u32> = [0].into_iter().cycle().take(word_size as usize).collect();
+	let mut conns_to_negative: Vec<u32> = [0].into_iter().cycle().take(word_size as usize).collect();
+
+	for i in 0..outputs_count {
+		let bind_name = format!("{}", i);
+
+		let mut bind = Bind::new(&bind_name, "logic", (1, 1, 1));
+
+		for bit in 0..word_size {
+			if get_bit(i, bit) {
+				let selector_id = conns_to_positive[bit as usize] / MAX_CONNECTIONS;
+				bind.connect_full(format!("sel_pos_{}/_/{}_0_0", selector_id, bit));
+				conns_to_positive[bit as usize] += 1;
+			} else {
+				let selector_id = conns_to_negative[bit as usize] / MAX_CONNECTIONS;
+				bind.connect_full(format!("sel_neg_{}/_/{}_0_0", selector_id, bit));
+				conns_to_negative[bit as usize] += 1;
+			}
+		}
+
+		combiner.bind_output(bind).unwrap();
+	}
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	scheme
+}
+
+fn get_bit(number: i64, bit_id: u32) -> bool {
+	((number >> bit_id) & 1) == 1
+}
 
 pub fn shapes_cube_combiner<B, S, R>(bounds: B, from_shape: S, shape_rot: R) -> Combiner<ManualPos>
 	where B: Into<Bounds>, S: Into<Shape>, R: Into<Rot>
