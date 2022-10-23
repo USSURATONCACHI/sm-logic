@@ -259,12 +259,12 @@ pub fn array(word_size: u32, size: (u32, u32, u32), make_direct_inputs: bool, ma
 	}
 
 	combiner.add_shapes_cube("address", (address_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
-	combiner.add_shapes_cube("write", (address_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
-	combiner.add_shapes_cube("read", (address_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("write", (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("read", (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
 	combiner.add("apply", OR).unwrap();
 
-	combiner.add_shapes_cube("compare", (address_size, 1, 1), XOR, Facing::PosZ.to_rot()).unwrap();
-	combiner.add_shapes_cube("pass_data", (address_size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("compare", (word_size, 1, 1), XOR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("pass_data", (word_size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
 	combiner.add("apply_delay", OR).unwrap();
 
 	combiner.connect("address", "mem/address");

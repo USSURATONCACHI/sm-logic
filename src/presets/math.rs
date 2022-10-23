@@ -339,7 +339,7 @@ pub fn inverter(word_size: u32) -> Scheme {
 /// Send two binary numbers to 'a' and 'b', then `2 * word_size` ticks
 /// later result of addition will be available on default output.
 ///
-/// With some input time shifting it is possible to use this for 3-tick
+/// With some input time shifting it is possible to use this for 2-tick
 /// threaded calculations. If you send each input bit with 2-tick delay
 /// from previous bit, then there will be correct output with the same
 /// delay between bits. Inputs can be 1-tick.
