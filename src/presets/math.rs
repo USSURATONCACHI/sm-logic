@@ -8,7 +8,32 @@ use crate::shape::vanilla::BlockType;
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
 use crate::util::{Facing, Point};
 
-pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
+/// ***Inputs***: a, b.
+///
+/// ***Outputs***: _ (result).
+
+///
+/// Multiplies two numbers.
+///
+/// Send two numbers to 'a' and 'b' and a little while later their
+/// product will be available on the default output.
+///
+/// Does not support threaded computations.
+///
+/// Have time complexity of `O(log(n))`, where `n` is word size -
+/// `bits_before_point + bits_after_point`.
+/// And logarithmic computations is really fast.
+///
+/// BUT it is really big and uses a lot of logic gates. Gates amount
+/// complexity is `O(n * n * log(n))`.
+///
+/// Examples:
+///
+/// `big_multiplier(8, 0)` uses 171 logic gates after `.remove_unused()` (word size is 8).
+/// `big_multiplier(32, 32)` uses 18213 logic gates after `.remove_unused()` (word size is 64).
+///
+/// It is good for small numbers but not for big numbers.
+pub fn big_multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	let size = bits_before_point + bits_after_point;
 
 	let mut combiner = Combiner::pos_manual();
@@ -237,54 +262,65 @@ fn _add_0_or_1(word_size: u32) -> Scheme {
 	scheme
 }
 
+/// ***Inputs***: _ (number).
+///
+/// ***Outputs***: _ (inverted number).
 
+///
+/// Inverts a binary number.
+/// Has O(word_size) time complexity.
 pub fn inverter(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
 	combiner.add_iter([
-		("-1_next", 	NOR),
-		("no_inputs", 	AND),
+		("const_signal", 	NOR),
+		("const_signal_start", 	AND),
 	]).unwrap();
 
 	combiner.pos().place_iter([
-		("-1_next", 	(2, -1, 0)),
-		("no_inputs", 	(1, -1, 0)),
+		("const_signal", 	(2, -1, 0)),
+		("const_signal_start", 	(1, -1, 0)),
 	]);
-	combiner.connect("no_inputs", "-1_next");
+	combiner.connect("const_signal_start", "const_signal");
+	// Connect to first bits of carry and out
+	combiner.connect_iter(["const_signal"], ["carry", "out"]);
 
-	for i in 0..word_size {
-		combiner.add_iter([
-			(format!("{}_inp", i), 	OR),
-			(format!("{}_nor", i), 	NOR),
-			(format!("{}_next", i), AND),
-			(format!("{}_out", i), 	XOR),
-		]).unwrap();
+	combiner.add_shapes_cube("or", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.add_shapes_cube("nor", (word_size, 1, 1), NOR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("carry", (word_size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("out", (word_size, 1, 1), XOR, Facing::NegY.to_rot()).unwrap();
 
-		combiner.connect(format!("{}_inp", i), format!("{}_nor", i));
-		combiner.connect(format!("{}_nor", i), format!("{}_out", i));
-		combiner.connect(format!("{}_nor", i), format!("{}_next", i));
+	combiner.connect("or", "nor");
+	combiner.connect("nor", "out");
+	combiner.connect("nor", "carry");
 
-		combiner.connect(format!("{}_next", (i as i32) - 1), format!("{}_next", i));
-		combiner.connect(format!("{}_next", (i as i32) - 1), format!("{}_out", i));
+	// Connection, that is shifted by +1X
+	let shift_1 = ConnMap::new(
+		|(point, _in_bounds), _out_bounds| Some(point + Point::new_ng(1, 0, 0))
+	);
+	combiner.custom("carry", "carry", shift_1.clone());
+	combiner.custom("carry", "out", shift_1);
 
-		combiner.pos().place_iter([
-			(format!("{}_inp", i), 	(0, i as i32, 0)),
-			(format!("{}_nor", i), 	(1, i as i32, 0)),
-			(format!("{}_next", i), (2, i as i32, 0)),
-			(format!("{}_out", i), 	(3, i as i32, 0)),
-		]);
-
-		combiner.pos().rotate(format!("{}_inp", i), Facing::NegX.to_rot());
-		combiner.pos().rotate(format!("{}_out", i), Facing::PosX.to_rot());
-	}
+	combiner.pos().place_iter([
+		("or", 		(0, 0, 0)),
+		("nor", 	(1, 0, 0)),
+		("carry", 	(2, 0, 0)),
+		("out", 	(3, 0, 0)),
+	]);
+	combiner.pos().rotate_iter([
+		("or", 		(0, 0, 1)),
+		("nor", 	(0, 0, 1)),
+		("carry", 	(0, 0, 1)),
+		("out", 	(0, 0, 1)),
+	]);
 
 	let mut bind = Bind::new("_", "binary", (word_size, 1, 1));
-	bind.connect_func(|x, _, _| Some(format!("{}_inp", x)));
-	bind.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
+	bind.connect_full("or");
+	bind.gen_point_sectors("bit", |x, _, _| x.to_string()).unwrap();
 	combiner.bind_input(bind).unwrap();
 
 	let mut bind = Bind::new("_", "binary", (word_size, 1, 1));
-	bind.connect_func(|x, _, _| Some(format!("{}_out", x)));
+	bind.connect_full("out");
 	bind.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
 	combiner.bind_output(bind).unwrap();
 
@@ -293,150 +329,152 @@ pub fn inverter(word_size: u32) -> Scheme {
 }
 
 
+/// ***Inputs***: a, b, carry.
+///
+/// ***Outputs***: _ (result), carry.
 
+///
+/// Adds two numbers.
+///
+/// Send two binary numbers to 'a' and 'b', then `2 * word_size` ticks
+/// later result of addition will be available on default output.
+///
+/// With some input time shifting it is possible to use this for 3-tick
+/// threaded calculations. If you send each input bit with 2-tick delay
+/// from previous bit, then there will be correct output with the same
+/// delay between bits. Inputs can be 1-tick.
+///
+/// And the point of this is in that threaded case you can send
+/// different pairs of numbers each two ticks and get correct result.
+/// To remove delay between output bits just add reverse delay.
+/// Threaded computations allow to add two numbers each two ticks
+/// (20 times per second) no matter `word_size`. The only downside is
+/// little delays in start and in the end during to bits delays.
 pub fn adder(word_size: u32) -> Scheme {
-	_adder(word_size, adder_section())
-}
-
-pub fn adder_compact(word_size: u32) -> Scheme {
-	_adder(word_size, adder_section_compact())
-}
-
-fn _adder(word_size: u32, section: Scheme) -> Scheme {
 	let mut adder = Combiner::pos_manual();
 
-	for i in 0..word_size {
-		adder.add(format!("{}", i), section.clone()).unwrap();
-		adder.pos().place_last((0, i as i32, 0));
+	adder.add("adder", adder_compact(word_size)).unwrap();
+	adder.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	adder.add_shapes_cube("b", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
 
-		adder.connect(format!("{}", i), format!("{}", i+1));
-	}
+	adder.connect("a", "adder/a");
+	adder.connect("b", "adder/b");
 
-	let mut bind = Bind::new("a", "binary", (word_size, 1u32, 1u32));
-	for x in 0..(word_size as i32) {
-		bind.connect(((x, 0, 0), (1, 1, 1)), format!("{}/a", x));
-		bind.add_sector(format!("{}", x), (x, 0, 0), (1, 1, 1), "binary").unwrap();
-	}
-	adder.bind_input(bind).unwrap();
+	adder.pass_output("_", "adder", None as Option<String>).unwrap();
 
-	let mut bind = Bind::new("b", "binary", (word_size, 1u32, 1u32));
-	for x in 0..(word_size as i32) {
-		bind.connect(((x, 0, 0), (1, 1, 1)), format!("{}/b", x));
-		bind.add_sector(format!("{}", x), (x, 0, 0), (1, 1, 1), "binary").unwrap();
-	}
-	adder.bind_input(bind).unwrap();
+	let mut inp_a = Bind::new("a", "binary", (word_size, 1u32, 1u32));
+	inp_a.connect_full("a");
+	inp_a.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	adder.bind_input(inp_a).unwrap();
 
-	let mut bind = Bind::new("_", "binary", (word_size, 1u32, 1u32));
-	bind.connect_func(|x, _, _| Some(format!("{}/res", x)));
-	bind.gen_point_sectors("bit", |x, _, _| format!("{}", x)).unwrap();
-	adder.bind_output(bind).unwrap();
+	let mut inp_b = Bind::new("b", "binary", (word_size, 1u32, 1u32));
+	inp_b.connect_full("b");
+	inp_b.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	adder.bind_input(inp_b).unwrap();
 
-	let mut bind = Bind::new("carry_bit", "bit", (1, 1, 1));
-	bind.connect_full(format!("{}", word_size as i32 - 1));
-	adder.bind_output(bind).unwrap();
+	adder.pass_input("carry", "adder/carry", None as Option<String>).unwrap();
+	adder.pass_output("carry", "adder/carry", None as Option<String>).unwrap();
 
-	let (scheme, _) = adder.compile().unwrap();
-	scheme
-}
-
-fn adder_section() -> Scheme {
-	let mut s = Combiner::pos_manual();
-
-	s.add_mul(["a", "b", "_"], OR).unwrap();
-	s.add_mul(["and_1", "and_2", "and_3"], AND).unwrap();
-	s.add("res", XOR).unwrap();
-
-	s.pos().place_iter([
+	adder.pos().place_iter([
+		("adder", (1, 0, 0)),
 		("a", (0, 0, 0)),
 		("b", (0, 0, 1)),
-		("_", (2, 0, 1)),
-		("and_1", (1, 0, 0)),
-		("and_2", (1, 0, 1)),
-		("and_3", (2, 0, 0)),
-		("res", (3, 0, 0)),
 	]);
 
-	s.pos().rotate("a", Facing::NegX.to_rot());
-	s.pos().rotate("b", Facing::NegX.to_rot());
-	s.pos().rotate("res", Facing::PosX.to_rot());
+	adder.pos().rotate_iter([
+		("a", (0, 0, 1)),
+		("b", (0, 0, 1)),
+	]);
 
-	let mut bind = Bind::new("a", "bit", (1, 1, 1));
-	bind.connect_full("a");
-	s.bind_input(bind).unwrap();
-
-	let mut bind = Bind::new("b", "bit", (1, 1, 1));
-	bind.connect_full("b");
-	s.bind_input(bind).unwrap();
-
-	let mut bind = Bind::new("_", "bit", (1, 1, 1));
-	bind.connect_full("_");
-	s.bind_input(bind).unwrap();
-
-	s.connect_iter(["a", "b", "_"], ["res"]);
-
-	s.connect_iter(["a"], ["and_1", "and_2"]);
-	s.connect_iter(["b"], ["and_2", "and_3"]);
-	s.connect_iter(["_"], ["and_3", "and_1"]);
-
-	let mut bind = Bind::new("_", "bit", (1, 1, 1));
-	bind.connect_full("and_1")
-		.connect_full("and_2")
-		.connect_full("and_3");
-	s.bind_output(bind).unwrap();
-
-	let mut bind = Bind::new("res", "bit", (1, 1, 1));
-	bind.connect_full("res");
-	s.bind_output(bind).unwrap();
-
-	let (scheme, _) = s.compile().unwrap();
+	let (scheme, _invalid) = adder.compile().unwrap();
 	scheme
 }
 
-fn adder_section_compact() -> Scheme {
+/// ***Inputs***: a, b, carry.
+///
+/// ***Outputs***: _ (result), carry.
+
+///
+/// Adder without input protection. Inputs 'a' and 'b' should only be
+/// connected into from one and only one gate for each bit, since AND
+/// gates are used for calculations.
+///
+/// Send two binary numbers to 'a' and 'b', then `2 * word_size` ticks
+/// later result of addition will be available on default output.
+///
+/// With some input time shifting it is possible to use this for 2-tick
+/// threaded calculations. If you send each input bit with 2-tick delay
+/// from previous bit, then there will be correct output with the same
+/// delay between bits. Inputs can be 1-tick.
+///
+/// And the point of this is in that threaded case you can send
+/// different pairs of numbers each two ticks and get correct result.
+/// To remove delay between output bits just add reverse delay.
+/// Threaded computations allow to add two numbers each two ticks
+/// (20 times per second) no matter `word_size`. The only downside is
+/// little delays in start and in the end during to bits delays.
+pub fn adder_compact(word_size: u32) -> Scheme {
 	let mut s = Combiner::pos_manual();
 
-	s.add_mul(["_"], OR).unwrap();
-	s.add_mul(["and_1", "and_2", "and_3"], AND).unwrap();
-	s.add("res", XOR).unwrap();
+	s.add_shapes_cube("carry", (word_size, 1, 1), OR, (0, 0, 0)).unwrap();
+	let and_line = shapes_cube((word_size, 1, 1), AND, (0, 0, 0));
+	s.add_mul(["and_1", "and_2", "and_3"], and_line).unwrap();
+	s.add_shapes_cube("res", (word_size, 1, 1), XOR, Facing::NegY.to_rot()).unwrap();
 
 	s.pos().place_iter([
-		("_", (1, 0, 1)),
+		("carry", (1, 0, 1)),
 		("and_1", (0, 0, 0)),
 		("and_2", (0, 0, 1)),
 		("and_3", (1, 0, 0)),
-		("res", (2, 0, 0)),
+		("res",   (2, 0, 0)),
 	]);
 
-	s.pos().rotate("res", Facing::PosX.to_rot());
+	s.pos().rotate_iter([
+		("carry", 	(0, 0, 1)),
+		("and_1", 	(0, 0, 1)),
+		("and_2", 	(0, 0, 1)),
+		("and_3", 	(0, 0, 1)),
+		("res", 	(0, 0, 1)),
+	]);
 
-	let mut bind = Bind::new("a", "bit", (1, 1, 1));
-	bind.connect_full("res");
-	bind.connect_full("and_1");
-	bind.connect_full("and_2");
-	s.bind_input(bind).unwrap();
+	s.connect_iter(["carry"], ["res", "and_3", "and_1"]);
 
-	let mut bind = Bind::new("b", "bit", (1, 1, 1));
-	bind.connect_full("res");
-	bind.connect_full("and_2");
-	bind.connect_full("and_3");
-	s.bind_input(bind).unwrap();
+	// Connection, that is shifted by +1X
+	let shift_1 = ConnMap::new(
+		|(point, _in_bounds), _out_bounds| Some(point + Point::new_ng(1, 0, 0))
+	);
+	s.custom_iter(["and_1", "and_2", "and_3"], ["carry"], shift_1);
 
-	let mut bind = Bind::new("_", "bit", (1, 1, 1));
-	bind.connect_full("_");
-	s.bind_input(bind).unwrap();
+	let mut inp_a = Bind::new("a", "binary", (word_size, 1, 1));
+	inp_a.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	inp_a.connect_full("and_1");
+	inp_a.connect_full("and_2");
+	inp_a.connect_full("res");
+	s.bind_input(inp_a).unwrap();
 
-	s.connect_iter(["_"], ["res", "and_3", "and_1"]);
+	let mut inp_b = Bind::new("b", "binary", (word_size, 1, 1));
+	inp_b.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	inp_b.connect_full("and_2");
+	inp_b.connect_full("and_3");
+	inp_b.connect_full("res");
+	s.bind_input(inp_b).unwrap();
 
-	let mut bind = Bind::new("_", "bit", (1, 1, 1));
-	bind.connect_full("and_1")
-		.connect_full("and_2")
-		.connect_full("and_3");
-	s.bind_output(bind).unwrap();
+	let mut out = Bind::new("_", "binary", (word_size, 1, 1));
+	out.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	out.connect_full("res");
+	s.bind_output(out).unwrap();
 
-	let mut bind = Bind::new("res", "bit", (1, 1, 1));
-	bind.connect_full("res");
-	s.bind_output(bind).unwrap();
 
-	let (scheme, _) = s.compile().unwrap();
+	let mut carry_in = Bind::new("carry", "bit", (1, 1, 1));
+	carry_in.connect_full("carry");
+	s.bind_input(carry_in).unwrap();
+
+	let mut carry_out = Bind::new("carry", "bit", (1, 1, 1));
+	carry_out.connect_full(format!("and_1/_/{}_0_0", word_size as i32 - 1))
+			.connect_full(format!("and_2/_/{}_0_0", word_size as i32 - 1))
+			.connect_full(format!("and_3/_/{}_0_0", word_size as i32 - 1));
+	s.bind_output(carry_out).unwrap();
+
+	let (scheme, _invalid) = s.compile().unwrap();
 	scheme
 }
