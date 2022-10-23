@@ -250,7 +250,6 @@ pub fn inverter(word_size: u32) -> Scheme {
 		("-1_next", 	(2, -1, 0)),
 		("no_inputs", 	(1, -1, 0)),
 	]);
-
 	combiner.connect("no_inputs", "-1_next");
 
 	for i in 0..word_size {

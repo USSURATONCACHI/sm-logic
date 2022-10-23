@@ -26,11 +26,11 @@ pub mod memory;
 // ANSI + Rus Table
 
 // Memory:
-// Simple XOR memory cell
-// Queue + bidirectional queue
+// Simple XOR memory cell - done
+// Array - done
+// Shift memory arrays - done
+
 // Stack
-// Array
-// Vector
 
 // Display:
 // Number display (customizable paddings)
@@ -44,6 +44,22 @@ pub mod memory;
 // Bool table generator
 
 pub fn binary_selector(word_size: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add("selector", binary_selector_compact(word_size)).unwrap();
+	combiner.pos().place_last((1, 0, 0));
+
+	combiner.add_shapes_cube("input", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.pass_input("_", "input", Some("binary")).unwrap();
+	combiner.pos().place_last((0, 0, 0));
+	combiner.pos().rotate_last((0, 0, 1));
+	combiner.connect("input", "selector");
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	scheme
+}
+
+pub fn binary_selector_compact(word_size: u32) -> Scheme {
 	if word_size >= 30 {
 		panic!("Binary selectors for word sizes more than 29 is not supported.");
 	}
@@ -53,23 +69,21 @@ pub fn binary_selector(word_size: u32) -> Scheme {
 
 	let mut combiner = Combiner::pos_manual();
 
-	combiner.add_shapes_cube("input", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
-	combiner.pass_input("_", "input", Some("binary")).unwrap();
-	combiner.pos().place_last((0, 0, 0));
-	combiner.pos().rotate_last((0, 0, 1));
+	let mut input = Bind::new("_", "binary", (word_size, 1, 1));
 
 	for i in 0..selectors_count {
 		combiner.add_shapes_cube(format!("sel_pos_{}", i), (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
 		combiner.pos().place_last((1, 0, i as i32));
 		combiner.pos().rotate_last((0, 0, 1));
-		combiner.connect("input", format!("sel_pos_{}", i));
+		input.connect_full(format!("sel_pos_{}", i));
 
 		combiner.add_shapes_cube(format!("sel_neg_{}", i), (word_size, 1, 1), NOR, Facing::PosZ.to_rot()).unwrap();
 		combiner.pos().place_last((2, 0, i as i32));
 		combiner.pos().rotate_last((0, 0, 1));
-		combiner.connect("input", format!("sel_neg_{}", i));
+		input.connect_full(format!("sel_neg_{}", i));
 	}
 
+	combiner.bind_input(input).unwrap();
 	let mut conns_to_positive: Vec<u32> = [0].into_iter().cycle().take(word_size as usize).collect();
 	let mut conns_to_negative: Vec<u32> = [0].into_iter().cycle().take(word_size as usize).collect();
 
