@@ -2,9 +2,10 @@ use crate::bind::Bind;
 use crate::combiner::Combiner;
 use crate::connection::ConnMap;
 use crate::positioner::ManualPos;
-use crate::presets::shapes_cube;
+use crate::presets::{shapes_cube, shift_connection};
+use crate::presets::memory::xor_mem_cell;
 use crate::scheme::Scheme;
-use crate::shape::vanilla::BlockType;
+use crate::shape::vanilla::{BlockType, Timer};
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
 use crate::util::{Facing, Point};
 
@@ -476,5 +477,157 @@ pub fn adder_compact(word_size: u32) -> Scheme {
 	s.bind_output(carry_out).unwrap();
 
 	let (scheme, _invalid) = s.compile().unwrap();
+	scheme
+}
+
+/// ***Inputs***: _ (data), reset.
+///
+/// ***Outputs***: _ (data).
+
+pub fn adder_mem(word_size: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	// ADDER ITSELF
+	combiner.add("adder", adder_compact(word_size)).unwrap();
+
+	combiner.add_shapes_cube("adder_inp", (word_size, 1, 1), AND, (0, 0, 0)).unwrap();
+	combiner.add_shapes_cube("adder_cycle_1", (word_size, 1, 1), AND, (0, 0, 0)).unwrap();
+	combiner.add_shapes_cube("adder_cycle_2", (word_size, 1, 1), AND, (0, 0, 0)).unwrap();
+
+	combiner.connect("adder", "adder_cycle_1");
+	combiner.connect("adder_cycle_1", "adder_cycle_2");
+	combiner.connect("adder_cycle_2", "adder/b");
+	combiner.connect("adder_inp", "adder/a");
+
+	combiner.pos().place_iter([
+		("adder", 		  (2, 0, 0)),
+		("adder_inp", 	  (1, 0, 0)),
+		("adder_cycle_1", (4, 0, 1)),
+		("adder_cycle_2", (1, 0, 1)),
+	]);
+
+	combiner.pos().rotate_iter([
+		("adder_inp", (0, 0, 1)),
+		("adder_cycle_1", (0, 0, 1)),
+		("adder_cycle_2", (0, 0, 1)),
+	]);
+
+	// TICKGEN
+	combiner.add_iter([
+		("const_signal_0", AND),
+		("const_signal_1", NOR),
+		("1_tick_0", NOR),
+		("1_tick_1", AND),
+		("tickgen_0", OR),
+		("tickgen_1", AND),
+		("tickgen_2", AND),
+	]).unwrap();
+	combiner.connect("const_signal_0", "const_signal_1");
+	combiner.connect_iter(["const_signal_1"], ["1_tick_0", "1_tick_1"]);
+	combiner.connect("1_tick_0", "1_tick_1");
+	combiner.connect("1_tick_1", "tickgen_0");
+	combiner.connect("tickgen_0", "tickgen_1");
+	combiner.connect("tickgen_1", "tickgen_2");
+	combiner.connect("tickgen_2", "tickgen_0");
+
+	combiner.pos().place_iter([
+		("const_signal_0", (1, word_size as i32, 0)),
+		("const_signal_1", (1, word_size as i32, 1)),
+		("1_tick_0", (2, word_size as i32, 0)),
+		("1_tick_1", (2, word_size as i32, 1)),
+		("tickgen_0", (3, word_size as i32, 0)),
+		("tickgen_1", (3, word_size as i32, 1)),
+		("tickgen_2", (4, word_size as i32, 0)),
+	]);
+
+	combiner.pos().rotate_iter(
+		[
+			"const_signal_0", "const_signal_1", "1_tick_0", "1_tick_1",
+			"tickgen_0", "tickgen_1", "tickgen_2"
+		].into_iter().map(|name| (name, Facing::PosY.to_rot()))
+	);
+
+	// INPUT TIMINGS FILTER
+	combiner.add_shapes_cube("inp_0", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.add_shapes_cube("inp_1", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.add_shapes_cube("inp_2", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	combiner.add_shapes_cube("input_filter", (word_size, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
+
+	combiner.connect("inp_0", "inp_1");
+	combiner.connect("inp_0", "inp_2");
+	combiner.connect("inp_1", "inp_2");
+
+	combiner.connect("tickgen_0", "input_filter");
+	combiner.connect_iter(["inp_2", "input_filter"], ["adder_inp"]);
+	combiner.custom("input_filter", "input_filter", shift_connection((1, 0, 0)));
+
+	combiner.pos().place_iter([
+		("inp_0", (0, 0, 0)),
+		("inp_1", (0, 0, 1)),
+		("inp_2", (0, 0, 2)),
+		("input_filter", (2, 0, 2)),
+	]);
+
+	combiner.pos().rotate_iter(
+		[
+			"inp_0", "inp_1", "inp_2", "input_filter",
+		].into_iter().map(|name| (name, (0, 0, 1)))
+	);
+
+	// INPUT ITSELF
+	let mut input = Bind::new("_", "binary", (word_size, 1, 1));
+	input.connect_full("inp_0").connect_full("inp_2");
+	input.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_input(input).unwrap();
+
+	// OUTPUT TIMINGS FILTER
+	combiner.add("mem", xor_mem_cell(word_size)).unwrap();
+	combiner.pos().place_last((6, 0, 0));
+
+	for i in 0..word_size {
+		let timer = format!("out_timer_{}", i);
+		combiner.add(&timer, Timer::new( (word_size - i - 1) * 2 )).unwrap();
+		combiner.pos().place_last((5, i as i32, 0));
+		combiner.pos().rotate_last(Facing::PosZ.to_rot());
+
+		combiner.connect(format!("adder/_/{}", i), &timer);
+		combiner.connect(&timer, format!("mem/data/{}", i));
+	}
+
+	combiner.connect("tickgen_2", "mem/write");
+
+	// OUTPUT ITSELF
+	let mut output = Bind::new("_", "binary", (word_size, 1, 1));
+	output.connect_full("mem");
+	output.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_output(output).unwrap();
+
+	// INPUT TO RESET
+	combiner.add_mul(["reset_0", "reset_1", "reset_2"], OR).unwrap();
+	combiner.add("reset_nor", NOR).unwrap();
+
+	combiner.connect("reset_0", "reset_1");
+	combiner.connect_iter(["reset_0", "reset_1"], ["reset_2"]);
+	combiner.connect_iter(["reset_0", "reset_1", "reset_2"], ["reset_nor"]);
+	combiner.dim("reset_nor", "adder_cycle_1", (true, true, true));
+
+	combiner.pos().place_iter([
+		("reset_0", (0, word_size as i32, 0)),
+		("reset_1", (0, word_size as i32, 1)),
+		("reset_2", (0, word_size as i32, 2)),
+		("reset_nor", (1, word_size as i32, 2)),
+	]);
+
+	combiner.pos().rotate_iter([
+		("reset_0", Facing::NegX.to_rot()),
+		("reset_1", Facing::NegX.to_rot()),
+		("reset_2", Facing::NegX.to_rot()),
+	]);
+
+	let mut reset = Bind::new("reset", "logic", (1, 1, 1));
+	reset.connect_full("reset_0").connect_full("reset_2");
+	combiner.bind_input(reset).unwrap();
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
 	scheme
 }

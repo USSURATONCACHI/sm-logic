@@ -1,5 +1,6 @@
 use crate::bind::Bind;
 use crate::combiner::Combiner;
+use crate::connection::{Connection, ConnMap};
 use crate::positioner::ManualPos;
 use crate::scheme::Scheme;
 use crate::shape::Shape;
@@ -8,29 +9,26 @@ use crate::util::{Bounds, Facing, MAX_CONNECTIONS, Point, Rot};
 
 pub mod math;
 pub mod memory;
+pub mod convertors;
 
 // Basic math:
 // adder - done
 // inverter - done
 // multiplier - done
+// thread adder - done
 // divider
-// thread adder
 // multiplier on thread adder
-
-// Convertors:
-// Binary to decimal
-// Decimal to binary
-// Table bintodec
-// Table dectobin
-// ANSI table
-// ANSI + Rus Table
 
 // Memory:
 // Simple XOR memory cell - done
 // Array - done
 // Shift memory arrays - done
 
-// Stack
+// Convertors:
+// Binary to decimal - done
+// Decimal to binary - done
+// Table bintodec - omitted
+// Table dectobin - omitted
 
 // Display:
 // Number display (customizable paddings)
@@ -42,6 +40,7 @@ pub mod memory;
 // Misc:
 // Number table generator
 // Bool table generator
+// Binary selector - done
 
 pub fn binary_selector(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
@@ -162,3 +161,6 @@ pub fn shapes_cube<B, S, R>(bounds: B, from_shape: S, shape_rot: R) -> Scheme
 	shapes_cube_combiner(bounds, from_shape, shape_rot).compile().unwrap().0
 }
 
+pub fn shift_connection(shift: (i32, i32, i32)) -> Box<dyn Connection> {
+	ConnMap::new(move |(point, _in_bounds), _out_bounds| Some(point + Point::from_tuple(shift)))
+}
