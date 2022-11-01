@@ -16,8 +16,11 @@ pub mod convertors;
 // inverter - done
 // multiplier - done
 // thread adder - done
+// multiplier on thread adder - done
 // divider
-// multiplier on thread adder
+// fastest counter
+// counter that has +1 and -1
+// xor memory cleaning module
 
 // Memory:
 // Simple XOR memory cell - done

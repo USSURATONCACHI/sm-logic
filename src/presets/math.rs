@@ -3,11 +3,193 @@ use crate::combiner::Combiner;
 use crate::connection::ConnMap;
 use crate::positioner::ManualPos;
 use crate::presets::{shapes_cube, shift_connection};
-use crate::presets::memory::xor_mem_cell;
 use crate::scheme::Scheme;
 use crate::shape::vanilla::{BlockType, Timer};
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
-use crate::util::{Facing, Point};
+use crate::util::{Facing, MAX_CONNECTIONS, Point};
+
+/// ***Inputs***: start, a, a_integer, a_fractional, b, b_integer, b_fractional.
+/// !!!!!!!!!!!TODO
+/// ***Outputs***: _ (result), integer, fractional, same_size, same_size_integer, same_size_fractional.
+pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	let word_size = bits_before_point + bits_after_point;
+	let slots_kind = format!("binary[{}.{}]", bits_before_point, bits_after_point);
+
+	let _bind_input = |combiner: &mut Combiner<ManualPos>, name: &str| {
+		let mut inp = Bind::new(name, slots_kind.clone(), (word_size, 1, 1));
+		inp.connect_full(name);
+		inp.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+		combiner.bind_input(inp).unwrap();
+
+		let mut inp_int = Bind::new(format!("{}_integer", name), "binary", (bits_before_point, 1, 1));
+		inp_int.custom_full(name, shift_connection((bits_after_point as i32, 0, 0)));
+		inp_int.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+		combiner.bind_input(inp_int).unwrap();
+
+		let mut inp_fract = Bind::new(format!("{}_fractional", name), "binary", (bits_after_point, 1, 1));
+		inp_fract.connect_full(name);
+		inp_fract.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+		combiner.bind_input(inp_fract).unwrap();
+	};
+
+	combiner.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	_bind_input(&mut combiner, "a");
+
+	combiner.add_shapes_cube("b", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+	_bind_input(&mut combiner, "b");
+
+	combiner.add_shapes_cube("a_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+	combiner.add_shapes_cube("b_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+
+	combiner.connect("a", "a_filter");
+	combiner.connect("b", "b_filter");
+
+	{
+		let mut activator_size = 0;
+
+		for i in 0..word_size {
+			if i % MAX_CONNECTIONS == 0 {
+				activator_size += 1;
+			}
+
+			combiner.connect(format!("a_activator/_/{}_0_0", activator_size - 1), format!("a_filter/_/{}_0_0", i));
+			combiner.connect(format!("b_activator/_/{}_0_0", activator_size - 1), format!("b_filter/_/{}_0_0", i));
+		}
+
+		combiner.add_shapes_cube("a_activator", (activator_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+		combiner.add_shapes_cube("b_activator", (activator_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+	}
+
+	let left_shift = bits_before_point as i32 - 1;
+	combiner.add_shapes_cube("a_shifter_or", (word_size * 2 - 1, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
+	combiner.add_shapes_cube("a_shifter_timer", (word_size * 2 - 1, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
+
+	combiner.connect("a_shifter_or", "a_shifter_timer");
+	combiner.custom("a_shifter_timer", "a_shifter_or", shift_connection((-1, 0, 0)));
+	combiner.custom("a_filter", "a_shifter_or", shift_connection((left_shift + bits_after_point as i32, 0, 0)));
+
+	combiner.add_shapes_cube("b_shifter_or", (word_size, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
+	combiner.add_shapes_cube("b_shifter_timer", (word_size, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
+	combiner.connect("b_shifter_or", "b_shifter_timer");
+	combiner.custom("b_shifter_timer", "b_shifter_or", shift_connection((1, 0, 0)));
+	combiner.connect("b_filter", "b_shifter_or");
+
+	combiner.add_shapes_cube("intersection", (word_size * 2 - 1, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+
+	{
+		// combiner.dim(, "intersection", (true, true, true));
+		let mut timer = format!("b_shifter_timer/_/{}_0_0", word_size as i32 - 1);
+		let mut timer_id = 0;
+
+		for i in 0..(2 * word_size - 1) {
+			if i != 0 && i % MAX_CONNECTIONS == 0 {
+				timer = format!("support_timer_{}", timer_id);
+
+				combiner.add(&timer, Timer::new(1)).unwrap();
+				combiner.pos().rotate_last((0, 1, 0));
+				combiner.pos().place_last((3, timer_id, 2));
+
+				combiner.connect(format!("b_shifter_or/_/{}_0_0", word_size - 1), &timer);
+
+				timer_id += 1;
+			}
+
+			combiner.connect(&timer, format!("intersection/_/{}_0_0", i));
+		}
+	}
+
+	combiner.connect("a_shifter_timer", "intersection");
+
+	// Adder
+	combiner.add("adder", adder_compact(word_size * 2)).unwrap();
+	combiner.add_shapes_cube("adder_cycle_1", (word_size * 2, 1, 1), AND, (0, 0, 0)).unwrap();
+	combiner.add_shapes_cube("adder_cycle_2", (word_size * 2, 1, 1), AND, (0, 0, 0)).unwrap();
+	combiner.connect("adder", "adder_cycle_1");
+	combiner.connect("adder_cycle_1", "adder_cycle_2");
+	combiner.connect("adder_cycle_2", "adder/b");
+
+	{
+		let mut reset_nor = "none".to_string();
+		let mut reset_gate_id = 0_i32;
+		for i in 0..(word_size * 2) {
+			if i % MAX_CONNECTIONS == 0 {
+				reset_nor = format!("reset_nor_{}", reset_gate_id);
+				combiner.add(&reset_nor, NOR).unwrap();
+				combiner.connect_iter(["start", "start_1", "start_2"], [&reset_nor]);
+				combiner.pos().place_last((1, reset_gate_id, 2));
+
+				reset_gate_id += 1;
+			}
+
+			combiner.connect(&reset_nor, format!("adder_cycle_2/_/{}_0_0", i));
+		}
+	}
+
+	combiner.add_shapes_cube("out_buffer_0", (word_size * 2, 1, 1), OR, (0, 0, 0)).unwrap();
+	combiner.add_shapes_cube("out_buffer_1", (word_size * 2, 1, 1), OR, (0, 0, 0)).unwrap();
+	combiner.add_shapes_cube("out_buffer_2", (word_size * 2, 1, 1), OR, (0, 0, 0)).unwrap();
+	combiner.connect_iter(["adder"], ["out_buffer_0", "out_buffer_1", "out_buffer_2"]);
+	combiner.connect_iter(["out_buffer_0"], ["out_buffer_1", "out_buffer_2"]);
+	combiner.connect("out_buffer_1", "out_buffer_2");
+
+	combiner.connect("intersection", "adder/a");
+
+	let mut output = Bind::new("_", format!("binary[{}.{}]", bits_before_point * 2, bits_after_point * 2), (word_size * 2, 1, 1));
+	output.connect_full("out_buffer_2");
+	output.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_output(output).unwrap();
+
+	combiner.add_mul(["start", "start_1", "start_2"], OR).unwrap();
+	combiner.connect("start", "start_1");
+	combiner.connect("start_1", "start_2");
+	combiner.connect_iter(["start", "start_1", "start_2"], ["a_activator", "b_activator", "adder/reset"]);
+	combiner.pass_input("start", "start", Some("logic")).unwrap();
+
+	combiner.pos().place_iter([
+		("a", (0, 0, 0)),
+		("b", (0, 0, 1)),
+		("a_filter", (1, 0, 0)),
+		("b_filter", (1, 0, 1)),
+		("a_activator", (6, 0, 2)),
+		("b_activator", (7, 0, 2)),
+
+		("a_shifter_or", (2, -(bits_after_point as i32), 0)),
+		("a_shifter_timer", (4, -(bits_after_point as i32), 0)),
+		("b_shifter_or", (2, 0, 1)),
+		("b_shifter_timer", (4, 0, 1)),
+		("intersection", (5, -(bits_after_point as i32), 0)),
+		("adder", (6, -(bits_after_point as i32), 0)),
+		("adder_cycle_1", (5, -(bits_after_point as i32), 2)),
+		("adder_cycle_2", (5, -(bits_after_point as i32), 1)),
+
+		("out_buffer_0", (8, -(bits_after_point as i32), 0)),
+		("out_buffer_1", (8, -(bits_after_point as i32), 1)),
+		("out_buffer_2", (8, -(bits_after_point as i32), 2)),
+
+		("start", (0, -1, 0)),
+		("start_1", (0, -1, 1)),
+		("start_2", (0, -1, 2)),
+	]);
+	combiner.pos().rotate("start", Facing::NegX.to_rot());
+
+	combiner.pos().rotate_iter(
+		[
+			"a", "b", "a_filter", "b_filter",
+			"a_shifter_or", "a_shifter_timer",
+			"b_shifter_or", "b_shifter_timer",
+			"intersection", "adder_cycle_1",
+			"adder_cycle_2", "out_buffer_0",
+			"out_buffer_1", "out_buffer_2",
+			"a_activator", "b_activator",
+		].into_iter()
+			.map(|x| (x, (0, 0, 1)))
+	);
+
+	let (scheme, _) = combiner.compile().unwrap();
+	scheme
+}
 
 /// ***Inputs***: a, b.
 ///
@@ -486,6 +668,7 @@ pub fn adder_compact(word_size: u32) -> Scheme {
 
 pub fn adder_mem(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
+	combiner.set_debug_name("presets::math::adder_mem");
 
 	// ADDER ITSELF
 	combiner.add("adder", adder_compact(word_size)).unwrap();
@@ -571,6 +754,7 @@ pub fn adder_mem(word_size: u32) -> Scheme {
 	combiner.pos().rotate_iter(
 		[
 			"inp_0", "inp_1", "inp_2", "input_filter",
+			"out_buffer_0", "out_buffer_1", "out_buffer_2"
 		].into_iter().map(|name| (name, (0, 0, 1)))
 	);
 
@@ -581,8 +765,15 @@ pub fn adder_mem(word_size: u32) -> Scheme {
 	combiner.bind_input(input).unwrap();
 
 	// OUTPUT TIMINGS FILTER
-	combiner.add("mem", xor_mem_cell(word_size)).unwrap();
-	combiner.pos().place_last((6, 0, 0));
+	combiner.add_shapes_cube("out_buffer_0", (word_size, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
+	combiner.add_shapes_cube("out_buffer_1", (word_size, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
+	combiner.add_shapes_cube("out_buffer_2", (word_size, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
+	combiner.connect("out_buffer_0", "out_buffer_1");
+	combiner.connect("out_buffer_0", "out_buffer_2");
+	combiner.connect("out_buffer_1", "out_buffer_2");
+	combiner.pos().place("out_buffer_0", (6, 0, 0));
+	combiner.pos().place("out_buffer_1", (6, 0, 1));
+	combiner.pos().place("out_buffer_2", (6, 0, 2));
 
 	for i in 0..word_size {
 		let timer = format!("out_timer_{}", i);
@@ -591,31 +782,41 @@ pub fn adder_mem(word_size: u32) -> Scheme {
 		combiner.pos().rotate_last(Facing::PosZ.to_rot());
 
 		combiner.connect(format!("adder/_/{}", i), &timer);
-		combiner.connect(&timer, format!("mem/data/{}", i));
+		combiner.connect(&timer, format!("out_buffer_0/_/{}_0_0", i));
+		combiner.connect(&timer, format!("out_buffer_1/_/{}_0_0", i));
+		combiner.connect(&timer, format!("out_buffer_2/_/{}_0_0", i));
 	}
-
-	combiner.connect("tickgen_2", "mem/write");
 
 	// OUTPUT ITSELF
 	let mut output = Bind::new("_", "binary", (word_size, 1, 1));
-	output.connect_full("mem");
+	output.connect_full("out_buffer_2");
 	output.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
 	combiner.bind_output(output).unwrap();
 
 	// INPUT TO RESET
 	combiner.add_mul(["reset_0", "reset_1", "reset_2"], OR).unwrap();
-	combiner.add("reset_nor", NOR).unwrap();
 
 	combiner.connect("reset_0", "reset_1");
 	combiner.connect_iter(["reset_0", "reset_1"], ["reset_2"]);
-	combiner.connect_iter(["reset_0", "reset_1", "reset_2"], ["reset_nor"]);
-	combiner.dim("reset_nor", "adder_cycle_1", (true, true, true));
+
+	let mut reset_nor_name = "none".to_string();
+	for conn_number in 0..word_size {
+		let nor_gate_id = conn_number / MAX_CONNECTIONS;
+
+		if conn_number % MAX_CONNECTIONS == 0 {
+			reset_nor_name = format!("reset_nor_{}", nor_gate_id);
+			combiner.add(&reset_nor_name, NOR).unwrap();
+			combiner.pos().place_last((1 + nor_gate_id as i32, word_size as i32, 2));
+
+			combiner.connect_iter(["reset_0", "reset_1", "reset_2"], [&reset_nor_name]);
+		}
+		combiner.connect(&reset_nor_name, format!("adder_cycle_1/_/{}_0_0", conn_number));
+	}
 
 	combiner.pos().place_iter([
 		("reset_0", (0, word_size as i32, 0)),
 		("reset_1", (0, word_size as i32, 1)),
 		("reset_2", (0, word_size as i32, 2)),
-		("reset_nor", (1, word_size as i32, 2)),
 	]);
 
 	combiner.pos().rotate_iter([
@@ -627,6 +828,15 @@ pub fn adder_mem(word_size: u32) -> Scheme {
 	let mut reset = Bind::new("reset", "logic", (1, 1, 1));
 	reset.connect_full("reset_0").connect_full("reset_2");
 	combiner.bind_input(reset).unwrap();
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	scheme
+}
+
+pub fn divider(_bits_before_point: u32, _bits_after_point: u32) -> Scheme {
+	let combiner = Combiner::pos_manual();
+
+
 
 	let (scheme, _invalid) = combiner.compile().unwrap();
 	scheme

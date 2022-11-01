@@ -8,6 +8,8 @@ use crate::shape::vanilla::GateMode::*;
 use crate::shape::vanilla::Timer;
 use crate::util::Facing;
 
+// TODO: Make bindec_array slots 2D instead of 1D
+
 /// ***Inputs***: _ (binary number).
 ///
 /// ***Outputs***: all, 0, 1, 2, 3, etc... (one for each bindec digit).
