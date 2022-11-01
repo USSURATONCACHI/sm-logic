@@ -2,7 +2,7 @@ use crate::bind::Bind;
 use crate::combiner::Combiner;
 use crate::connection::{ConnDim, ConnFilter, ConnMap};
 use crate::positioner::ManualPos;
-use crate::presets::{make_rational_bind, shapes_cube, shift_connection};
+use crate::presets::{connect_safe, make_rational_bind, shapes_cube, shift_connection};
 use crate::scheme::Scheme;
 use crate::shape::vanilla::{BlockType, Timer};
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
@@ -38,81 +38,77 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 
 	let word_size = bits_before_point + bits_after_point;
 
-	let _bind_input = |combiner: &mut Combiner<ManualPos>, name: &str| {
-		let mut inp = Bind::new(name, "binary", (word_size, 1, 1));
-		inp.connect_full(name);
-		inp.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
-		combiner.bind_input(inp).unwrap();
-
-		let rational = make_rational_bind(format!("{}_rational", name), name, bits_before_point, bits_after_point, bits_after_point, 0);
-		combiner.bind_input(rational).unwrap();
-	};
-
-	combiner.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
-	_bind_input(&mut combiner, "a");
-
-	combiner.add_shapes_cube("b", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
-	_bind_input(&mut combiner, "b");
-
-	combiner.add_shapes_cube("a_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
-	combiner.add_shapes_cube("b_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
-
-	combiner.connect("a", "a_filter");
-	combiner.connect("b", "b_filter");
-
+	// Input gates
 	{
-		let mut activator_size = 0;
+		let _bind_input = |combiner: &mut Combiner<ManualPos>, name: &str| {
+			let mut inp = Bind::new(name, "binary", (word_size, 1, 1));
+			inp.connect_full(name);
+			inp.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+			combiner.bind_input(inp).unwrap();
 
-		for i in 0..word_size {
-			if i % MAX_CONNECTIONS == 0 {
-				activator_size += 1;
-			}
+			let rational = make_rational_bind(format!("{}_rational", name), name, bits_before_point, bits_after_point, bits_after_point, 0);
+			combiner.bind_input(rational).unwrap();
+		};
 
-			combiner.connect(format!("a_activator/_/{}_0_0", activator_size - 1), format!("a_filter/_/{}_0_0", i));
-			combiner.connect(format!("b_activator/_/{}_0_0", activator_size - 1), format!("b_filter/_/{}_0_0", i));
-		}
+		combiner.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+		_bind_input(&mut combiner, "a");
 
-		combiner.add_shapes_cube("a_activator", (activator_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
-		combiner.add_shapes_cube("b_activator", (activator_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+		combiner.add_shapes_cube("b", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
+		_bind_input(&mut combiner, "b");
+
+		combiner.add_shapes_cube("a_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+		combiner.add_shapes_cube("b_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+
+		combiner.connect("a", "a_filter");
+		combiner.connect("b", "b_filter");
 	}
 
-	let left_shift = bits_before_point as i32 - 1;
-	combiner.add_shapes_cube("a_shifter_or", (word_size * 2 - 1, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
-	combiner.add_shapes_cube("a_shifter_timer", (word_size * 2 - 1, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
-
-	combiner.connect("a_shifter_or", "a_shifter_timer");
-	combiner.custom("a_shifter_timer", "a_shifter_or", shift_connection((-1, 0, 0)));
-	combiner.custom("a_filter", "a_shifter_or", shift_connection((left_shift + bits_after_point as i32, 0, 0)));
-
-	combiner.add_shapes_cube("b_shifter_or", (word_size, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
-	combiner.add_shapes_cube("b_shifter_timer", (word_size, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
-	combiner.connect("b_shifter_or", "b_shifter_timer");
-	combiner.custom("b_shifter_timer", "b_shifter_or", shift_connection((1, 0, 0)));
-	combiner.connect("b_filter", "b_shifter_or");
-
-	combiner.add_shapes_cube("intersection", (word_size * 2 - 1, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
-
+	// Input & 1-tick logic signal = 1-tick input
 	{
-		// combiner.dim(, "intersection", (true, true, true));
-		let mut timer = format!("b_shifter_timer/_/{}_0_0", word_size as i32 - 1);
-		let mut timer_id = 0;
+		let activator_size = connect_safe(
+			&mut combiner,
+			(0..word_size).map(|i| format!("a_filter/_/{}_0_0", i))
+				.chain((0..word_size).map(|i| format!("b_filter/_/{}_0_0", i))),
+			|_combiner, i| format!("activator/_/{}_0_0", i),
+			None,
+			false
+		).unwrap();
 
-		for i in 0..(2 * word_size - 1) {
-			if i != 0 && i % MAX_CONNECTIONS == 0 {
-				timer = format!("support_timer_{}", timer_id);
 
-				combiner.add(&timer, Timer::new(1)).unwrap();
-				combiner.pos().rotate_last((0, 1, 0));
-				combiner.pos().place_last((3, timer_id, 2));
-
-				combiner.connect(format!("b_shifter_or/_/{}_0_0", word_size - 1), &timer);
-
-				timer_id += 1;
-			}
-
-			combiner.connect(&timer, format!("intersection/_/{}_0_0", i));
-		}
+		combiner.add_shapes_cube("activator", (activator_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
 	}
+
+	// Each 3 ticks number shifts one bit down
+	{
+		let left_shift = bits_before_point as i32 - 1;
+		combiner.add_shapes_cube("a_shifter_or", (word_size * 2 - 1, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
+		combiner.add_shapes_cube("a_shifter_timer", (word_size * 2 - 1, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
+
+		combiner.connect("a_shifter_or", "a_shifter_timer");
+		combiner.custom("a_shifter_timer", "a_shifter_or", shift_connection((-1, 0, 0)));
+		combiner.custom("a_filter", "a_shifter_or", shift_connection((left_shift + bits_after_point as i32, 0, 0)));
+
+		combiner.add_shapes_cube("b_shifter_or", (word_size, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
+		combiner.add_shapes_cube("b_shifter_timer", (word_size, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
+		combiner.connect("b_shifter_or", "b_shifter_timer");
+		combiner.custom("b_shifter_timer", "b_shifter_or", shift_connection((1, 0, 0)));
+		combiner.connect("b_filter", "b_shifter_or");
+
+		combiner.add_shapes_cube("intersection", (word_size * 2 - 1, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+	}
+
+	connect_safe(
+		&mut combiner,
+		(0..(2 * word_size - 1)).map(|i| format!("intersection/_/{}_0_0", i)),
+		|combiner, i| {
+			let name = format!("support_timer_{}", i);
+			combiner.add(&name, Timer::new(1)).unwrap();
+			combiner.pos().place_last((3, i as i32, 2));
+			name
+		},
+		Some(format!("b_shifter_timer/_/{}_0_0", word_size as i32 - 1)),
+		false
+	).unwrap();
 
 	combiner.connect("a_shifter_timer", "intersection");
 
@@ -124,21 +120,21 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	combiner.connect("adder_cycle_1", "adder_cycle_2");
 	combiner.connect("adder_cycle_2", "adder/b");
 
-	{
-		let mut reset_nor = "none".to_string();
-		let mut reset_gate_id = 0_i32;
-		for i in 0..(word_size * 2) {
-			if i % MAX_CONNECTIONS == 0 {
-				reset_nor = format!("reset_nor_{}", reset_gate_id);
-				combiner.add(&reset_nor, NOR).unwrap();
-				combiner.connect_iter(["start", "start_1", "start_2"], [&reset_nor]);
-				combiner.pos().place_last((1, reset_gate_id, 2));
+	let resets = connect_safe(
+		&mut combiner,
+		(0..(2 * word_size)).map(|i| format!("adder_cycle_2/_/{}_0_0", i)),
+		|combiner, i| {
+			let name = format!("reset_nor_{}", i);
+			combiner.add(&name, NOR).unwrap();
+			combiner.pos().place_last((1, i as i32, 2));
+			name
+		},
+		None,
+		false
+	).unwrap();
 
-				reset_gate_id += 1;
-			}
-
-			combiner.connect(&reset_nor, format!("adder_cycle_2/_/{}_0_0", i));
-		}
+	for i in 0..resets {
+		combiner.connect_iter(["start", "start_1", "start_2"], [format!("reset_nor_{}", i)]);
 	}
 
 	combiner.add_shapes_cube("out_buffer_0", (word_size * 2, 1, 1), OR, (0, 0, 0)).unwrap();
@@ -175,7 +171,8 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	combiner.add_mul(["start", "start_1", "start_2"], OR).unwrap();
 	combiner.connect("start", "start_1");
 	combiner.connect("start_1", "start_2");
-	combiner.connect_iter(["start", "start_1", "start_2"], ["a_activator", "b_activator", "adder/reset"]);
+	combiner.connect_iter(["start", "start_1", "start_2"], ["adder/reset"]);
+	combiner.dim_iter(["start", "start_1", "start_2"], ["activator"], (true, true, true));
 	combiner.pass_input("start", "start", Some("logic")).unwrap();
 
 	combiner.pos().place_iter([
@@ -183,8 +180,7 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 		("b", (0, 0, 1)),
 		("a_filter", (1, 0, 0)),
 		("b_filter", (1, 0, 1)),
-		("a_activator", (6, 0, 2)),
-		("b_activator", (7, 0, 2)),
+		("activator", (6, 0, 2)),
 
 		("a_shifter_or", (2, -(bits_after_point as i32), 0)),
 		("a_shifter_timer", (4, -(bits_after_point as i32), 0)),
@@ -213,7 +209,7 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 			"intersection", "adder_cycle_1",
 			"adder_cycle_2", "out_buffer_0",
 			"out_buffer_1", "out_buffer_2",
-			"a_activator", "b_activator",
+			"activator",
 		].into_iter()
 			.map(|x| (x, (0, 0, 1)))
 	);

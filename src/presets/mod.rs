@@ -1,7 +1,7 @@
 use crate::bind::Bind;
-use crate::combiner::Combiner;
+use crate::combiner::{Combiner, Error};
 use crate::connection::{Connection, ConnMap};
-use crate::positioner::ManualPos;
+use crate::positioner::{ManualPos, Positioner};
 use crate::scheme::Scheme;
 use crate::shape::Shape;
 use crate::shape::vanilla::GateMode::*;
@@ -122,6 +122,47 @@ pub fn make_rational_bind<S1: Into<String>, S2: Into<String>>(
 	}
 
 	rational
+}
+
+pub fn connect_safe<P, T, N, S>(
+	combiner: &mut Combiner<P>,
+	targets: T,
+	create_activator: N,
+	start_with: Option<String>,
+	rev: bool
+) -> Result<u32, Error>
+	where T: IntoIterator, <T as IntoIterator>::Item: Into<String>,
+			N: Fn(&mut Combiner<P>, u32) -> S,
+			S: Into<String>, P: Positioner
+{
+	let mut activators_count = 0;
+
+	let has_start = start_with.is_some();
+	let mut activator = match start_with {
+		Some(start) => start,
+		None => "none".to_string(),
+	};
+
+	for (i, target) in targets.into_iter().enumerate() {
+		let should_change = if has_start {
+			i != 0 && i % (MAX_CONNECTIONS as usize) == 0
+		} else {
+			i % (MAX_CONNECTIONS as usize) == 0
+		};
+
+		if should_change {
+			activator = create_activator(combiner, activators_count).into();
+			activators_count += 1;
+		}
+
+		if !rev {
+			combiner.connect(&activator, target);
+		} else {
+			combiner.connect(target, &activator);
+		}
+	}
+
+	Ok(activators_count)
 }
 
 pub fn binary_selector(word_size: u32) -> Scheme {
