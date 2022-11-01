@@ -921,11 +921,13 @@ impl<P: Positioner> Combiner<P> {
 
 		let mut bind = Bind::new(name, kind, sector.bounds);
 
-		for (sec_name, sector) in slot.sectors() {
-			if sec_name.len() == 0 {
-				continue;
+		if sector.pos.eq(&Point::new(0, 0, 0)) && sector.bounds == slot.bounds() {
+			for (sec_name, sector) in slot.sectors() {
+				if sec_name.len() == 0 {
+					continue;
+				}
+				bind.add_sector(sec_name.clone(), sector.pos.clone(), sector.bounds.clone(), sector.kind.clone()).unwrap();
 			}
-			bind.add_sector(sec_name.clone(), sector.pos.clone(), sector.bounds.clone(), sector.kind.clone()).unwrap();
 		}
 
 		bind.connect_full(path);
