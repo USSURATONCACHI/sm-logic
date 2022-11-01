@@ -45,6 +45,85 @@ pub mod convertors;
 // Bool table generator
 // Binary selector - done
 
+/// Creates `Bind` of slot, that contains binary number splitted in two
+/// parts.
+///
+/// ***Sectors***:
+///
+/// ...3, 2, 1, 0, -1, -2, -3, -4... - for bits of number. Names
+/// represent power of bit. All negative names are for fractional bits
+/// (1/2, 1/4 and so on).
+///
+/// integer - for integer part of number.
+///
+/// fractional - for fractional part of number (reverse order of bits).
+///
+/// integer/0, integer/1, integer/2...
+///
+/// fractional/0, fractional/1, fractional/2...
+///
+/// for each bit of corresponding part.
+///
+/// ***Sectors end***
+///
+/// Integer part is stored in sector 'integer' (usage: '%name%/integer').
+/// Integer bits are laid in points (bit_id, 0, 0) of abstract slot space.
+///
+/// Fractional part is stored in sector 'fractional' in reverse order
+/// (usage: '%name%/fractional').
+/// Fractional bits are laid in points (bit_id, 1, 0).
+///
+/// Arguments:
+///
+/// `name` - name of the slot/bind.
+///
+/// `target` - name of the line of gates, where bits are stored
+/// initially as just plain binary number.
+///
+/// `bits_before_point` - amount of integer bits.
+///
+/// `bits_after_point` - amount of fractional bits.
+///
+/// `shift_to_integer` - position of the first integer bit on the `target`.
+///
+/// `shift_to_fractional` - position of the first fractional bit on the `target`.
+///
+pub fn make_rational_bind<S1: Into<String>, S2: Into<String>>(
+	name: S1, target: S2,
+	bits_before_point: u32, bits_after_point: u32,
+	shift_to_integer: u32, shift_to_fractional: u32,
+) -> Bind {
+	let bind_size = bits_before_point.max(bits_after_point);
+	let mut rational = Bind::new(name, "binary.rational", (bind_size, 2, 1));
+
+	let target = target.into();
+	let integer = shift_connection(((shift_to_integer as i32), 0, 0));
+	rational.custom(((0, 0, 0), (bits_before_point, 1, 1)), &target, integer);
+
+	// |x, size| size - x - 1
+	let fractional = ConnMap::new(move |(point, _), _| {
+		let (x, y, z) = point.tuple();
+		Some(Point::new(bits_after_point as i32 - x - 1 + shift_to_fractional as i32, y, z))
+	});
+	rational.custom(((0, 1, 0), (bits_after_point, 1, 1)), &target, fractional);
+
+	// integer
+	rational.add_sector("integer", (0, 0, 0), (bits_before_point, 1, 1), "binary").unwrap();
+	for i in 0..bits_before_point {
+		rational.add_sector(format!("integer/{}", i), (i as i32, 0, 0), (1, 1, 1), "bit").unwrap();
+		rational.add_sector(format!("{}", i), (i as i32, 0, 0), (1, 1, 1), "bit").unwrap();
+	}
+
+	// fractional
+	rational.add_sector("fractional", (0, 1, 0), (bits_after_point, 1, 1), "binary.fractional").unwrap();
+	for i in 0..bits_after_point {
+		rational.add_sector(format!("fractional/{}", i), (i as i32, 1, 0), (1, 1, 1), "bit").unwrap();
+		rational.add_sector(format!("{}", -(i as i32) - 1), (i as i32, 1, 0), (1, 1, 1), "bit").unwrap();
+	}
+
+	rational
+}
+
 pub fn binary_selector(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 

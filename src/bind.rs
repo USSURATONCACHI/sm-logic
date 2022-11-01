@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use crate::combiner::SlotSide;
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::scheme;
 use crate::slot::{Slot, SlotSector};
@@ -135,10 +134,10 @@ impl Bind {
 		let bounds = bounds.into();
 
 		let start = corner;
-		let end: Point = start + bounds.cast() - Point::new_ng(1_i32, 1, 1);
+		let end: Point = start + bounds.cast();
 
 		if !is_point_in_bounds(start, self.bounds()) ||
-			!is_point_in_bounds(end, self.bounds()) {
+			!is_point_in_bounds(end, self.bounds() + Bounds::new_ng(1_u32, 1, 1)) {
 			return Err(
 				SectorError::SectorIsOutOfSlotBounds {
 					sector_name: name,
@@ -362,7 +361,7 @@ impl Bind {
 
 impl Bind {
 	// 										name, start shape, slots
-	pub fn compile(self, schemes: &HashMap<String, (usize, Vec<Slot>)>, side: SlotSide)
+	pub fn compile(self, schemes: &HashMap<String, (usize, Vec<Slot>)>)
 		-> (Slot, Vec<InvalidConn>)
 	{
 		let mut map: Map3D<Vec<usize>> = Map3D::filled(self.bounds().cast().tuple(), vec![]);
@@ -380,19 +379,8 @@ impl Bind {
 				};
 
 			// Point-to-point
-			let p2p_conns: Vec<(Point, Point)> = match side {
-				SlotSide::Input => sector.conn
-					.connect(sector.sector_size, slot_sector.bounds)
-					.into_iter()
-					.map(|(from, to)| (from, to))
-					.collect(),
-
-				SlotSide::Output => sector.conn
-					.connect(slot_sector.bounds, sector.sector_size)
-					.into_iter()
-					.map(|(from, to)| (to, from))
-					.collect(),
-			};
+			let p2p_conns: Vec<(Point, Point)> = sector.conn
+				.connect(sector.sector_size, slot_sector.bounds);
 
 			for (from_this, to_slot) in p2p_conns {
 				if !is_point_in_bounds(from_this, sector.sector_size) ||
@@ -444,7 +432,7 @@ fn compile_get_slot<'a>(sector: &BasicBind, schemes: &'a HashMap<String, (usize,
 		Some(slot_sector) => slot_sector,
 	};
 
-	//println!("Target: '{}', Scheme: '{}', Slot: '{}', Sector: '{}'", target, target_scheme, slot_name, slot_sector);
+	// println!("\t\tScheme: '{}', Slot: '{}', Sector: '{}'", target_scheme, slot_name, slot_sector);
 
 	let (start_shape, slots) = match schemes.get(&target_scheme) {
 		None => {

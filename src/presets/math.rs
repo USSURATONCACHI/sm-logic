@@ -1,37 +1,51 @@
 use crate::bind::Bind;
 use crate::combiner::Combiner;
-use crate::connection::ConnMap;
+use crate::connection::{ConnDim, ConnFilter, ConnMap};
 use crate::positioner::ManualPos;
-use crate::presets::{shapes_cube, shift_connection};
+use crate::presets::{make_rational_bind, shapes_cube, shift_connection};
 use crate::scheme::Scheme;
 use crate::shape::vanilla::{BlockType, Timer};
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
 use crate::util::{Facing, MAX_CONNECTIONS, Point};
 
-/// ***Inputs***: start, a, a_integer, a_fractional, b, b_integer, b_fractional.
+/// ***Inputs***: start,
+/// a, a_rational,
+/// b, b_rational.
 /// !!!!!!!!!!!TODO
-/// ***Outputs***: _ (result), integer, fractional, same_size, same_size_integer, same_size_fractional.
+/// ***Outputs***:
+/// _ (result), rational,
+/// same_size, same_size_rational.
+
+///
+/// Multiplies two numbers.
+///
+/// Send two binary numbers to 'a' and 'b' input and a 1-tick signal
+/// to 'start' input simultaneously. Then, linear time later product
+/// will be available on the output.
+///
+/// `word_size` is `bits_after_point + bits_after_point`.
+///
+/// Does not support threaded computations.
+///
+/// <br>
+/// Time complexity: `O(word_size)`.
+///
+/// Space complexity: `O(word_size)`.
+///
+/// (`O(word_size)`, a bit more than `2 * word_size` ticks, to be more exact)
 pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
 	let word_size = bits_before_point + bits_after_point;
-	let slots_kind = format!("binary[{}.{}]", bits_before_point, bits_after_point);
 
 	let _bind_input = |combiner: &mut Combiner<ManualPos>, name: &str| {
-		let mut inp = Bind::new(name, slots_kind.clone(), (word_size, 1, 1));
+		let mut inp = Bind::new(name, "binary", (word_size, 1, 1));
 		inp.connect_full(name);
 		inp.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
 		combiner.bind_input(inp).unwrap();
 
-		let mut inp_int = Bind::new(format!("{}_integer", name), "binary", (bits_before_point, 1, 1));
-		inp_int.custom_full(name, shift_connection((bits_after_point as i32, 0, 0)));
-		inp_int.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
-		combiner.bind_input(inp_int).unwrap();
-
-		let mut inp_fract = Bind::new(format!("{}_fractional", name), "binary", (bits_after_point, 1, 1));
-		inp_fract.connect_full(name);
-		inp_fract.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
-		combiner.bind_input(inp_fract).unwrap();
+		let rational = make_rational_bind(format!("{}_rational", name), name, bits_before_point, bits_after_point, bits_after_point, 0);
+		combiner.bind_input(rational).unwrap();
 	};
 
 	combiner.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
@@ -136,10 +150,27 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 
 	combiner.connect("intersection", "adder/a");
 
-	let mut output = Bind::new("_", format!("binary[{}.{}]", bits_before_point * 2, bits_after_point * 2), (word_size * 2, 1, 1));
-	output.connect_full("out_buffer_2");
-	output.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
-	combiner.bind_output(output).unwrap();
+	// Outputs
+	let mut output_def = Bind::new("_", "binary", (word_size * 2, 1, 1));
+	output_def.connect_full("out_buffer_2");
+	output_def.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_output(output_def).unwrap();
+
+	let output_rational = make_rational_bind("rational", "out_buffer_2", bits_before_point * 2, bits_after_point * 2, bits_after_point * 2, 0);
+	combiner.bind_output(output_rational).unwrap();
+
+	let mut same_size = Bind::new("same_size", "binary", (word_size, 1, 1));
+	same_size.custom_full("out_buffer_2", shift_connection(((bits_after_point as i32) * 2, 0, 0)));
+	same_size.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_output(same_size).unwrap();
+
+	let same_size_rational = make_rational_bind(
+		"same_size_rational", "out_buffer_2", bits_before_point,
+		bits_after_point, bits_after_point * 2, bits_after_point
+	);
+	combiner.bind_output(same_size_rational).unwrap();
+
+	// Outputs end
 
 	combiner.add_mul(["start", "start_1", "start_2"], OR).unwrap();
 	combiner.connect("start", "start_1");
@@ -216,6 +247,10 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 /// `big_multiplier(32, 32)` uses 18213 logic gates after `.remove_unused()` (word size is 64).
 ///
 /// It is good for small numbers but not for big numbers.
+///
+/// ***Time complexity***: `O(word_size.log2())`.
+///
+/// ***Space complexity***: `O(word_size.pow(2) * word_size.log2())`.
 pub fn big_multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	let size = bits_before_point + bits_after_point;
 
@@ -302,6 +337,12 @@ pub fn big_multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	return scheme;
 }
 
+/// Utility function for `big_multiplier`.
+/// Adds adders to combiner to add each pair of rows.
+///
+/// Function is so large and ugly because it is a victim of a bunch of
+/// shape usage optimizations. I was trying to make it use as few logic
+/// gates as possible.
 fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: Vec<(u32, Vec<String>)>) -> Vec<(u32, Vec<String>)> {
 	const ADDER_X_SIZE: i32 = 3;
 	const ADDER_Z_SIZE: i32 = 2;
@@ -405,6 +446,18 @@ fn add_rows_once(iteration: i32, combiner: &mut Combiner<ManualPos>, rows_map: V
 	new_step
 }
 
+/// ***Inputs***: data, bit.
+///
+/// ***Outputs***: _ (number).
+
+///
+/// Allows to add single bit (1-digit binary number) to a binary number.
+///
+/// Is only needed as a part of `big_multiplier`.
+///
+/// ***Time complexity***: `O(word_size)` (exactly `word_size` ticks).
+///
+/// ***Space complexity***: `O(word_size)` (exactly `2 * word_size + 1` gates).
 fn _add_0_or_1(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
@@ -451,7 +504,14 @@ fn _add_0_or_1(word_size: u32) -> Scheme {
 
 ///
 /// Inverts a binary number.
-/// Has O(word_size) time complexity.
+///
+/// Theoretically allows for 1-tick threaded calculations (1-tick delay
+/// between input numbers (like a number each tick), and 1-tick delay
+/// between bits). But I have not checked yet.
+///
+/// ***Time complexity***: `O(word_size)` (exactly `word_size` ticks).
+///
+/// ***Space complexity***: `O(word_size)` (exactly `4 * word_size + 2` gates).
 pub fn inverter(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
@@ -533,6 +593,10 @@ pub fn inverter(word_size: u32) -> Scheme {
 /// Threaded computations allow to add two numbers each two ticks
 /// (20 times per second) no matter `word_size`. The only downside is
 /// little delays in start and in the end during to bits delays.
+///
+/// ***Time complexity***: `O(word_size)` (exactly `word_size * 2` ticks).
+///
+/// ***Space complexity***: `O(word_size)` (exactly `word_size * 7` gates).
 pub fn adder(word_size: u32) -> Scheme {
 	let mut adder = Combiner::pos_manual();
 
@@ -596,6 +660,10 @@ pub fn adder(word_size: u32) -> Scheme {
 /// Threaded computations allow to add two numbers each two ticks
 /// (20 times per second) no matter `word_size`. The only downside is
 /// little delays in start and in the end during to bits delays.
+///
+/// ***Time complexity***: `O(word_size)` (exactly `word_size * 2` ticks).
+///
+/// ***Space complexity***: `O(word_size)` (exactly `word_size * 5` gates).
 pub fn adder_compact(word_size: u32) -> Scheme {
 	let mut s = Combiner::pos_manual();
 
@@ -666,6 +734,28 @@ pub fn adder_compact(word_size: u32) -> Scheme {
 ///
 /// ***Outputs***: _ (data).
 
+///
+/// Adds numbers on input to its buffer (output).
+/// To set buffer value to zero, send 1-tick signal to 'reset' input.
+///
+/// Input numbers should be sent with step of 3 (or multiples of 3) ticks.
+///
+/// A simple add-on of 'adder', that connects adder output to it's
+/// input, guarantees that timings are correct and smoothes output
+/// signal.
+///
+/// You can do such a scheme manually by just connecting adder output
+/// to one of it's inputs, but then you will have to make timings
+/// control manually.
+///
+/// ***Time complexity***: `O(word_size)`? No real measurements were made for
+/// this scheme, but theoretically it should be about
+/// `2 * word_size + 6` ticks delay between input and output.
+///
+/// ***Space complexity***: `O(word_size)`. To be exact:
+///
+/// `16 * word_size + 11 + word_size / MAX_CONNECTIONS` shapes (gates
+/// and timers).
 pub fn adder_mem(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 	combiner.set_debug_name("presets::math::adder_mem");
@@ -828,6 +918,88 @@ pub fn adder_mem(word_size: u32) -> Scheme {
 	let mut reset = Bind::new("reset", "logic", (1, 1, 1));
 	reset.connect_full("reset_0").connect_full("reset_2");
 	combiner.bind_input(reset).unwrap();
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	scheme
+}
+
+/// ***Inputs***: a, b.
+///
+/// ***Outputs***: a>b, a=b, a<b.
+
+///
+/// Checks if one binary number is greater, equal or less than another.
+///
+/// Computes output in exactly 4 ticks no matter the size.
+///
+/// Size limit: word_size could be up to 255. If more - connections
+/// overflow will happen.
+///
+/// Does not allow for threaded calculations.
+///
+/// ***Time complexity***: `O(1)` (exactly `4` ticks).
+///
+/// ***Space complexity***: `O(word_size)` (`word_size * 5 + 1` gates, if `word_size > 0`, to be exact)
+pub fn fast_compare(word_size: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+	combiner.set_debug_name("presets::math::comparator");
+
+	combiner.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("and_a", (word_size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("diff_xor", (word_size, 1, 1), XOR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("and_b", (word_size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("b", (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+
+	combiner.connect_iter(["a", "b"], ["diff_xor"]);
+	combiner.connect_iter(["diff_xor"], ["and_a", "and_b"]);
+	combiner.connect("a", "and_a");
+	combiner.connect("b", "and_b");
+
+	let check_size = if word_size == 0 { 0 } else { word_size - 1 };
+	combiner.add_shapes_cube("check_nor", (check_size, 1, 1), NOR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add("a_is_bigger", OR).unwrap();
+	combiner.add("b_is_bigger", OR).unwrap();
+
+	combiner.dim("and_a", "a_is_bigger", (true, true, true));
+	combiner.dim("and_b", "b_is_bigger", (true, true, true));
+	combiner.connect_iter(["check_nor"], ["and_a", "and_b"]);
+
+	let nor_connection = ConnFilter::new(
+		ConnDim::new((true, true, true)),
+		|from, to| from.x().gt(to.x())	// from.x > to.x
+	);
+	combiner.custom("diff_xor", "check_nor", nor_connection);
+
+	let mut input_a = Bind::new("a", "binary", (word_size, 1, 1));
+	let mut input_b = Bind::new("b", "binary", (word_size, 1, 1));
+	input_a.connect_full("a");
+	input_b.connect_full("b");
+	input_a.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	input_b.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_input(input_a).unwrap();
+	combiner.bind_input(input_b).unwrap();
+
+	combiner.pass_output("a>b", "a_is_bigger", Some("logic")).unwrap();
+	combiner.pass_output("a<b", "b_is_bigger", Some("logic")).unwrap();
+	combiner.pass_output("a=b", "check_nor/_/0_0_0", Some("logic")).unwrap();
+
+	combiner.pos().place_iter([
+		("a", (0, 0, 0)),
+		("and_a", (1, 0, 0)),
+		("diff_xor", (2, 0, 0)),
+		("and_b", (3, 0, 0)),
+		("b", (4, 0, 0)),
+
+		("a_is_bigger", (1, 0, 1)),
+		("check_nor", (2, 0, 1)),
+		("b_is_bigger", (3, 0, 1)),
+	]);
+
+	combiner.pos().rotate_iter(
+		[
+			"a", "b", "and_a", "and_b", "diff_xor", "check_nor"
+		].into_iter().map(|name| (name, (0, 0, 1)))
+	);
 
 	let (scheme, _invalid) = combiner.compile().unwrap();
 	scheme

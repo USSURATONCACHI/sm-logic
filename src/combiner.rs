@@ -1023,7 +1023,7 @@ impl<P: Positioner> Combiner<P> {
 
 		// Compiling input binds
 		let inputs: Vec<Slot> = self.inputs.into_iter()
-			.map(|bind| bind.compile(&inputs_map, SlotSide::Input))
+			.map(|bind| bind.compile(&inputs_map))
 			.map(|(slot, invalid)| {
 				let invalid = invalid.into_iter()
 					.map(|x| (slot.name().clone(), x));
@@ -1035,7 +1035,7 @@ impl<P: Positioner> Combiner<P> {
 
 		// Compiling output binds
 		let outputs: Vec<Slot> = self.outputs.into_iter()
-			.map(|bind| bind.compile(&outputs_map, SlotSide::Output))
+			.map(|bind| bind.compile(&outputs_map))
 			.map(|(slot, invalid)| {
 				let invalid = invalid.into_iter()
 					.map(|x| (slot.name().clone(), x));
