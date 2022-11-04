@@ -1,8 +1,8 @@
 use crate::bind::Bind;
 use crate::combiner::Combiner;
-use crate::connection::{ConnDim, ConnFilter, ConnMap};
+use crate::connection::{ConnMap};
 use crate::positioner::ManualPos;
-use crate::presets::{connect_safe, make_rational_bind, shapes_cube, shift_connection};
+use crate::presets::{connect_safe, input_filter_rational, make_rational_bind, shapes_cube, shift_connection};
 use crate::scheme::Scheme;
 use crate::shape::vanilla::{BlockType, Timer};
 use crate::shape::vanilla::GateMode::{AND, NOR, OR, XOR};
@@ -11,7 +11,7 @@ use crate::util::{Facing, MAX_CONNECTIONS, Point};
 /// ***Inputs***: start,
 /// a, a_rational,
 /// b, b_rational.
-/// !!!!!!!!!!!TODO
+///
 /// ***Outputs***:
 /// _ (result), rational,
 /// same_size, same_size_rational.
@@ -38,45 +38,13 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 
 	let word_size = bits_before_point + bits_after_point;
 
-	// Input gates
-	{
-		let _bind_input = |combiner: &mut Combiner<ManualPos>, name: &str| {
-			let mut inp = Bind::new(name, "binary", (word_size, 1, 1));
-			inp.connect_full(name);
-			inp.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
-			combiner.bind_input(inp).unwrap();
+	combiner.add("a", input_filter_rational(bits_before_point, bits_after_point)).unwrap();
+	combiner.pass_input("a", "a", None as Option<String>).unwrap();
+	combiner.pass_input("a_rational", "a/rational", None as Option<String>).unwrap();
 
-			let rational = make_rational_bind(format!("{}_rational", name), name, bits_before_point, bits_after_point, bits_after_point, 0);
-			combiner.bind_input(rational).unwrap();
-		};
-
-		combiner.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
-		_bind_input(&mut combiner, "a");
-
-		combiner.add_shapes_cube("b", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
-		_bind_input(&mut combiner, "b");
-
-		combiner.add_shapes_cube("a_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
-		combiner.add_shapes_cube("b_filter", (word_size, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
-
-		combiner.connect("a", "a_filter");
-		combiner.connect("b", "b_filter");
-	}
-
-	// Input & 1-tick logic signal = 1-tick input
-	{
-		let activator_size = connect_safe(
-			&mut combiner,
-			(0..word_size).map(|i| format!("a_filter/_/{}_0_0", i))
-				.chain((0..word_size).map(|i| format!("b_filter/_/{}_0_0", i))),
-			|_combiner, i| format!("activator/_/{}_0_0", i),
-			None,
-			false
-		).unwrap();
-
-
-		combiner.add_shapes_cube("activator", (activator_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
-	}
+	combiner.add("b", input_filter_rational(bits_before_point, bits_after_point)).unwrap();
+	combiner.pass_input("b", "b", None as Option<String>).unwrap();
+	combiner.pass_input("b_rational", "b/rational", None as Option<String>).unwrap();
 
 	// Each 3 ticks number shifts one bit down
 	{
@@ -86,17 +54,16 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 
 		combiner.connect("a_shifter_or", "a_shifter_timer");
 		combiner.custom("a_shifter_timer", "a_shifter_or", shift_connection((-1, 0, 0)));
-		combiner.custom("a_filter", "a_shifter_or", shift_connection((left_shift + bits_after_point as i32, 0, 0)));
+		combiner.custom("a", "a_shifter_or", shift_connection((left_shift + bits_after_point as i32, 0, 0)));
 
 		combiner.add_shapes_cube("b_shifter_or", (word_size, 1, 1), OR, Facing::NegY.to_rot()).unwrap();
 		combiner.add_shapes_cube("b_shifter_timer", (word_size, 1, 1), Timer::new(1), Facing::NegY.to_rot()).unwrap();
 		combiner.connect("b_shifter_or", "b_shifter_timer");
 		combiner.custom("b_shifter_timer", "b_shifter_or", shift_connection((1, 0, 0)));
-		combiner.connect("b_filter", "b_shifter_or");
-
-		combiner.add_shapes_cube("intersection", (word_size * 2 - 1, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
+		combiner.connect("b", "b_shifter_or");
 	}
 
+	combiner.add_shapes_cube("intersection", (word_size * 2 - 1, 1, 1), AND, Facing::NegY.to_rot()).unwrap();
 	connect_safe(
 		&mut combiner,
 		(0..(2 * word_size - 1)).map(|i| format!("intersection/_/{}_0_0", i)),
@@ -137,31 +104,24 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 		combiner.connect_iter(["start", "start_1", "start_2"], [format!("reset_nor_{}", i)]);
 	}
 
-	combiner.add_shapes_cube("out_buffer_0", (word_size * 2, 1, 1), OR, (0, 0, 0)).unwrap();
-	combiner.add_shapes_cube("out_buffer_1", (word_size * 2, 1, 1), OR, (0, 0, 0)).unwrap();
-	combiner.add_shapes_cube("out_buffer_2", (word_size * 2, 1, 1), OR, (0, 0, 0)).unwrap();
-	combiner.connect_iter(["adder"], ["out_buffer_0", "out_buffer_1", "out_buffer_2"]);
-	combiner.connect_iter(["out_buffer_0"], ["out_buffer_1", "out_buffer_2"]);
-	combiner.connect("out_buffer_1", "out_buffer_2");
-
 	combiner.connect("intersection", "adder/a");
 
 	// Outputs
 	let mut output_def = Bind::new("_", "binary", (word_size * 2, 1, 1));
-	output_def.connect_full("out_buffer_2");
+	output_def.connect_full("adder");
 	output_def.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
 	combiner.bind_output(output_def).unwrap();
 
-	let output_rational = make_rational_bind("rational", "out_buffer_2", bits_before_point * 2, bits_after_point * 2, bits_after_point * 2, 0);
+	let output_rational = make_rational_bind("rational", "adder", bits_before_point * 2, bits_after_point * 2, bits_after_point * 2, 0);
 	combiner.bind_output(output_rational).unwrap();
 
 	let mut same_size = Bind::new("same_size", "binary", (word_size, 1, 1));
-	same_size.custom_full("out_buffer_2", shift_connection(((bits_after_point as i32) * 2, 0, 0)));
+	same_size.custom_full("adder", shift_connection(((bits_after_point as i32) * 2, 0, 0)));
 	same_size.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
 	combiner.bind_output(same_size).unwrap();
 
 	let same_size_rational = make_rational_bind(
-		"same_size_rational", "out_buffer_2", bits_before_point,
+		"same_size_rational", "adder", bits_before_point,
 		bits_after_point, bits_after_point * 2, bits_after_point
 	);
 	combiner.bind_output(same_size_rational).unwrap();
@@ -172,15 +132,12 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	combiner.connect("start", "start_1");
 	combiner.connect("start_1", "start_2");
 	combiner.connect_iter(["start", "start_1", "start_2"], ["adder/reset"]);
-	combiner.dim_iter(["start", "start_1", "start_2"], ["activator"], (true, true, true));
+	combiner.dim_iter(["start", "start_1", "start_2"], ["a/activator", "b/activator"], (true, true, true));
 	combiner.pass_input("start", "start", Some("logic")).unwrap();
 
 	combiner.pos().place_iter([
 		("a", (0, 0, 0)),
 		("b", (0, 0, 1)),
-		("a_filter", (1, 0, 0)),
-		("b_filter", (1, 0, 1)),
-		("activator", (6, 0, 2)),
 
 		("a_shifter_or", (2, -(bits_after_point as i32), 0)),
 		("a_shifter_timer", (4, -(bits_after_point as i32), 0)),
@@ -191,25 +148,18 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 		("adder_cycle_1", (5, -(bits_after_point as i32), 2)),
 		("adder_cycle_2", (5, -(bits_after_point as i32), 1)),
 
-		("out_buffer_0", (8, -(bits_after_point as i32), 0)),
-		("out_buffer_1", (8, -(bits_after_point as i32), 1)),
-		("out_buffer_2", (8, -(bits_after_point as i32), 2)),
-
-		("start", (0, -1, 0)),
-		("start_1", (0, -1, 1)),
-		("start_2", (0, -1, 2)),
+		("start", (0, 0, 0)),
+		("start_1", (0, 0, 1)),
+		("start_2", (0, 0, 2)),
 	]);
 	combiner.pos().rotate("start", Facing::NegX.to_rot());
 
 	combiner.pos().rotate_iter(
 		[
-			"a", "b", "a_filter", "b_filter",
 			"a_shifter_or", "a_shifter_timer",
 			"b_shifter_or", "b_shifter_timer",
 			"intersection", "adder_cycle_1",
-			"adder_cycle_2", "out_buffer_0",
-			"out_buffer_1", "out_buffer_2",
-			"activator",
+			"adder_cycle_2"
 		].into_iter()
 			.map(|x| (x, (0, 0, 1)))
 	);
@@ -217,6 +167,7 @@ pub fn multiplier(bits_before_point: u32, bits_after_point: u32) -> Scheme {
 	let (scheme, _) = combiner.compile().unwrap();
 	scheme
 }
+
 
 /// ***Inputs***: a, b.
 ///
@@ -942,29 +893,64 @@ pub fn fast_compare(word_size: u32) -> Scheme {
 
 	combiner.add_shapes_cube("a", (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
 	combiner.add_shapes_cube("and_a", (word_size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
-	combiner.add_shapes_cube("diff_xor", (word_size, 1, 1), XOR, Facing::PosZ.to_rot()).unwrap();
+	//combiner.add_shapes_cube("diff_xor", (word_size, 1, 1), XOR, Facing::PosZ.to_rot()).unwrap();
 	combiner.add_shapes_cube("and_b", (word_size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
 	combiner.add_shapes_cube("b", (word_size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
 
-	combiner.connect_iter(["a", "b"], ["diff_xor"]);
-	combiner.connect_iter(["diff_xor"], ["and_a", "and_b"]);
+
+	// diff_xor
+	// This all is needed, so it won't break with word_size > 254
+	for i in 0..word_size {
+		let mut diff_xor_name = format!("diff_xor_{}/_/0_0_0", i);
+		combiner.connect(&diff_xor_name, format!("and_a/_/{}_0_0", i));
+		combiner.connect(&diff_xor_name, format!("and_b/_/{}_0_0", i));
+		combiner.connect(format!("a/_/{}_0_0", i), &diff_xor_name);
+		combiner.connect(format!("b/_/{}_0_0", i), &diff_xor_name);
+
+		let mut xor_count = 1;
+		let mut diff_xor_conns = 2;
+		for check_nor in 0..i {
+			if diff_xor_conns % (MAX_CONNECTIONS as i32) == 0 {
+				diff_xor_name = format!("diff_xor_{}/_/{}_0_0", i, diff_xor_conns / (MAX_CONNECTIONS as i32));
+				combiner.connect(format!("a/_/{}_0_0", i), &diff_xor_name);
+				combiner.connect(format!("b/_/{}_0_0", i), &diff_xor_name);
+				xor_count += 1;
+			}
+
+			let conn_to_check_nor_id = i - check_nor;
+			let check_nor_gate_id = conn_to_check_nor_id / MAX_CONNECTIONS;
+
+			combiner.connect(&diff_xor_name, format!("check_nor_{}/_/{}_0_0", check_nor, check_nor_gate_id));
+			diff_xor_conns += 1;
+		}
+
+
+		combiner.add_shapes_cube(format!("diff_xor_{}", i), (xor_count, 1, 1), XOR, Facing::PosX.to_rot()).unwrap();
+		combiner.pos().place_last((2, i as i32, 0));
+		combiner.pos().rotate_last((0, -1, 0));
+
+		combiner.connect_iter([format!("a/_/{}_0_0", i), format!("b/_/{}_0_0", i)], [format!("diff_xor_{}", i)]);
+
+		// also add check_nor gates
+		let check_nor_total_conns = word_size - i - 1;
+		let check_nor_size = (check_nor_total_conns + MAX_CONNECTIONS - 1) / MAX_CONNECTIONS;
+		let check_nor_name = format!("check_nor_{}", i);
+		combiner.add_shapes_cube(&check_nor_name, (check_nor_size, 1, 1), NOR, Facing::PosX.to_rot()).unwrap();
+		combiner.pos().place_last((2, i as i32, xor_count as i32));
+		combiner.pos().rotate_last((0, -1, 0));
+
+		combiner.dim(&check_nor_name, format!("and_a/_/{}_0_0", i), (true, true, true));
+		combiner.dim(&check_nor_name, format!("and_b/_/{}_0_0", i), (true, true, true));
+	}
+	combiner.dim("check_nor_0", "a_eq_b", (true, true, true));
+
 	combiner.connect("a", "and_a");
 	combiner.connect("b", "and_b");
 
-	let check_size = if word_size == 0 { 0 } else { word_size - 1 };
-	combiner.add_shapes_cube("check_nor", (check_size, 1, 1), NOR, Facing::PosZ.to_rot()).unwrap();
 	combiner.add("a_is_bigger", OR).unwrap();
 	combiner.add("b_is_bigger", OR).unwrap();
+	combiner.add("a_eq_b", AND).unwrap();
 
-	combiner.dim("and_a", "a_is_bigger", (true, true, true));
-	combiner.dim("and_b", "b_is_bigger", (true, true, true));
-	combiner.connect_iter(["check_nor"], ["and_a", "and_b"]);
-
-	let nor_connection = ConnFilter::new(
-		ConnDim::new((true, true, true)),
-		|from, to| from.x().gt(to.x())	// from.x > to.x
-	);
-	combiner.custom("diff_xor", "check_nor", nor_connection);
 
 	let mut input_a = Bind::new("a", "binary", (word_size, 1, 1));
 	let mut input_b = Bind::new("b", "binary", (word_size, 1, 1));
@@ -975,25 +961,43 @@ pub fn fast_compare(word_size: u32) -> Scheme {
 	combiner.bind_input(input_a).unwrap();
 	combiner.bind_input(input_b).unwrap();
 
+	for i in 0..word_size {
+		let a_name = format!("a_is_bigger_{}", i / MAX_CONNECTIONS);
+		let b_name = format!("b_is_bigger_{}", i / MAX_CONNECTIONS);
+		if i % MAX_CONNECTIONS == 0 {
+			combiner.add(&a_name, OR).unwrap();
+			combiner.add(&b_name, OR).unwrap();
+
+			combiner.pos().place(&a_name, (1, 1, 1 + (i / MAX_CONNECTIONS) as i32));
+			combiner.pos().place(&b_name, (3, 1, 1 + (i / MAX_CONNECTIONS) as i32));
+
+			combiner.connect(&a_name, "a_is_bigger");
+			combiner.connect(&b_name, "b_is_bigger");
+		}
+
+		combiner.connect(format!("and_a/_/{}_0_0", i), &a_name);
+		combiner.connect(format!("and_b/_/{}_0_0", i), &b_name);
+	}
+
 	combiner.pass_output("a>b", "a_is_bigger", Some("logic")).unwrap();
 	combiner.pass_output("a<b", "b_is_bigger", Some("logic")).unwrap();
-	combiner.pass_output("a=b", "check_nor/_/0_0_0", Some("logic")).unwrap();
+	combiner.pass_output("a=b", "a_eq_b", Some("logic")).unwrap();
 
 	combiner.pos().place_iter([
 		("a", (0, 0, 0)),
 		("and_a", (1, 0, 0)),
-		("diff_xor", (2, 0, 0)),
 		("and_b", (3, 0, 0)),
 		("b", (4, 0, 0)),
 
 		("a_is_bigger", (1, 0, 1)),
-		("check_nor", (2, 0, 1)),
+		// ("check_nor", (2, 0, 1)),
 		("b_is_bigger", (3, 0, 1)),
+		("a_eq_b", (2, 0, 2 + (word_size / MAX_CONNECTIONS) as i32)),
 	]);
 
 	combiner.pos().rotate_iter(
 		[
-			"a", "b", "and_a", "and_b", "diff_xor", "check_nor"
+			"a", "b", "and_a", "and_b", // "diff_xor", "check_nor"
 		].into_iter().map(|name| (name, (0, 0, 1)))
 	);
 
@@ -1001,10 +1005,55 @@ pub fn fast_compare(word_size: u32) -> Scheme {
 	scheme
 }
 
-pub fn divider(_bits_before_point: u32, _bits_after_point: u32) -> Scheme {
-	let combiner = Combiner::pos_manual();
+// Divide algo
 
+//	Set remainder to a
+// For i in 0..word_size
+// if b << i > rem
+// 		rem -= b << i
+//		result |= 1 << i
 
+pub fn divider(bits_before_point: u32, bits_after_point: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	let _thread_delay = 4;
+	let word_size = bits_before_point + bits_after_point;
+
+	combiner.add("a", input_filter_rational(bits_before_point, bits_after_point)).unwrap();
+	combiner.pass_input("a", "a", None as Option<String>).unwrap();
+	combiner.pass_input("a_rational", "a/rational", None as Option<String>).unwrap();
+
+	combiner.add("b", input_filter_rational(bits_before_point, bits_after_point)).unwrap();
+	combiner.pass_input("b", "b", None as Option<String>).unwrap();
+	combiner.pass_input("b_rational", "b/rational", None as Option<String>).unwrap();
+
+	combiner.add("remainder", adder_compact(word_size)).unwrap();
+	{
+		// combiner.add("rem_reset", );
+		combiner.line_rot_mul(["rem_cycle_1", "rem_cycle_2"], AND, word_size).unwrap();
+
+		combiner.connect("remainder", "rem_cycle_1");
+		combiner.connect("rem_cycle_1", "rem_cycle_2");
+		combiner.connect("rem_cycle_2", "remainder/b");
+	}
+
+	combiner.add("inverter", inverter(word_size)).unwrap();
+	combiner.add("compare", fast_compare(word_size)).unwrap();
+
+	let activators_count = ((word_size + MAX_CONNECTIONS - 1) / MAX_CONNECTIONS) as i32;
+
+	combiner.pos().place_iter([
+		("a", (0, -activators_count, 0)),
+		("b", (0, -activators_count, 1)),
+		("remainder", (3, 0, 0)),
+		("rem_cycle_1", (5, 0, 1)),
+		("rem_cycle_2", (2, 0, 1)),
+	]);
+
+	combiner.pos().rotate_iter(
+		["rem_cycle_1", "rem_cycle_2"]
+			.map(|x| (x, (0, 0, 1)))
+	);
 
 	let (scheme, _invalid) = combiner.compile().unwrap();
 	scheme

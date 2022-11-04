@@ -538,6 +538,103 @@ impl<P: Positioner> Combiner<P> {
 			Ok(())
 		}
 	}
+
+
+	pub fn line<N, S>(&mut self, name: N, shape: S, length: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _line(shape, length)) 			}
+
+	pub fn line_rot<N, S>(&mut self, name: N, shape: S, length: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _line_rot(shape, length)) 		}
+
+	pub fn line_mul<N, S>(&mut self, names: N, shape: S, length: u32) -> Result<(), Vec<Error>>
+		where N: IntoIterator, <N as IntoIterator>::Item: Into<String>,
+				S: Into<Shape>
+	{ 	self.add_mul(names, _line(shape, length)) 		}
+
+	pub fn line_rot_mul<N, S>(&mut self, names: N, shape: S, length: u32) -> Result<(), Vec<Error>>
+		where S: Into<Shape>, N: IntoIterator, <N as IntoIterator>::Item: Into<String>
+	{ 	self.add_mul(names, _line_rot(shape, length)) 	}
+
+
+	pub fn rect<N, S>(&mut self, name: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _rect(shape, size_x, size_y)) 			}
+
+	pub fn rect_vert<N, S>(&mut self, name: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _rect_vert(shape, size_x, size_y)) 		}
+
+	pub fn rect_mul<N, S>(&mut self, names: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Vec<Error>>
+		where N: IntoIterator, <N as IntoIterator>::Item: Into<String>,
+			  S: Into<Shape>
+	{ 	self.add_mul(names, _rect(shape, size_x, size_y)) 		}
+
+	pub fn rect_vert_mul<N, S>(&mut self, names: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Vec<Error>>
+		where S: Into<Shape>, N: IntoIterator, <N as IntoIterator>::Item: Into<String>
+	{ 	self.add_mul(names, _rect_vert(shape, size_x, size_y)) 	}
+}
+
+fn _rect<S: Into<Shape>>(shape: S, size_x: u32, size_y: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add_shapes_cube("a", (size_x, size_y, 1), shape, (0, 0, 0)).unwrap();
+
+	let mut slot = Bind::new("_", "_", (size_x, size_y, 1));
+	slot.connect_full("a");
+	slot.gen_point_sectors("_", |x, y, _z| format!("{}_{}", x, y)).unwrap();
+
+	combiner.bind_input(slot.clone()).unwrap();
+	combiner.bind_output(slot).unwrap();
+
+	for x in 0..size_x {
+		for y in 0..size_y {
+			let mut point_slot = Bind::new(format!("{}_{}", x, y), "_", (1, 1, 1));
+			point_slot.connect_full(format!("a/_/{}_{}_0", x, y));
+			combiner.bind_input(point_slot.clone()).unwrap();
+			combiner.bind_output(point_slot.clone()).unwrap();
+		}
+	}
+
+	combiner.pos().place_last((0, 0, 0));
+	let (scheme, _) = combiner.compile().unwrap();
+	scheme
+}
+
+fn _rect_vert<S: Into<Shape>>(shape: S, size_x: u32, size_y: u32) -> Scheme {
+	let mut rect = _rect(shape, size_x, size_y);
+	rect.rotate(Rot::new(1, 0, 1));
+	rect
+}
+
+fn _line<S: Into<Shape>>(shape: S, length: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add_shapes_cube("a", (length, 1, 1), shape, (0, 0, 0)).unwrap();
+
+	let mut slot = Bind::new("_", "_", (length, 1, 1));
+	slot.connect_full("a");
+	slot.gen_point_sectors("_", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_input(slot.clone()).unwrap();
+	combiner.bind_output(slot).unwrap();
+
+	for x in 0..length {
+		let mut point_slot = Bind::new(format!("{}", x), "_", (1, 1, 1));
+		point_slot.connect_full(format!("a/_/{}_0_0", x));
+		combiner.bind_input(point_slot.clone()).unwrap();
+		combiner.bind_output(point_slot.clone()).unwrap();
+	}
+
+	combiner.pos().place_last((0, 0, 0));
+	let (scheme, _) = combiner.compile().unwrap();
+	scheme
+}
+
+fn _line_rot<S: Into<Shape>>(shape: S, length: u32) -> Scheme {
+	let mut line = _line(shape, length);
+	line.rotate(Rot::new(0, 0, 1));
+	line
 }
 
 impl<P: Positioner> Combiner<P> {

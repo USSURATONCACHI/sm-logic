@@ -10,6 +10,7 @@ use crate::util::{Bounds, Facing, MAX_CONNECTIONS, Point, Rot};
 pub mod math;
 pub mod memory;
 pub mod convertors;
+pub mod display;
 
 // Basic math:
 // adder - done
@@ -127,12 +128,12 @@ pub fn make_rational_bind<S1: Into<String>, S2: Into<String>>(
 pub fn connect_safe<P, T, N, S>(
 	combiner: &mut Combiner<P>,
 	targets: T,
-	create_activator: N,
+	mut create_activator: N,
 	start_with: Option<String>,
 	rev: bool
 ) -> Result<u32, Error>
 	where T: IntoIterator, <T as IntoIterator>::Item: Into<String>,
-			N: Fn(&mut Combiner<P>, u32) -> S,
+			N: FnMut(&mut Combiner<P>, u32) -> S,
 			S: Into<String>, P: Positioner
 {
 	let mut activators_count = 0;
@@ -165,11 +166,97 @@ pub fn connect_safe<P, T, N, S>(
 	Ok(activators_count)
 }
 
+/// ***Inputs***: data, activator.
+///
+/// ***Outputs***: _ (filter).
+fn input_filter(size: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add_shapes_cube("in_data", (size, 1, 1), OR, Facing::PosZ.to_rot()).unwrap();
+	combiner.add_shapes_cube("filter", (size, 1, 1), AND, Facing::PosZ.to_rot()).unwrap();
+
+	let mut activator = Bind::new("activator", "logic", (1, 1, 1));
+	combiner.connect("in_data", "filter");
+	connect_safe(
+		&mut combiner,
+		(0..size).map(|i| format!("filter/_/{}_0_0", i)),
+		|combiner, i| {
+			let name = format!("{}", i);
+			combiner.add(&name, OR).unwrap();
+			activator.connect_full(&name);
+			combiner.pos().place_last((1, -(i as i32) - 1, 0));
+
+			name
+		},
+		None,
+		false
+	).unwrap();
+
+	combiner.pos().place("in_data", (0, 0, 0));
+	combiner.pos().place("filter", (1, 0, 0));
+
+	combiner.pos().rotate("in_data", (0, 0, 1));
+	combiner.pos().rotate("in_data", (0, -1, 0));
+	combiner.pos().rotate("filter", (0, 0, 1));
+
+	combiner.bind_input(activator).unwrap();
+	combiner.pass_input("data", "in_data", Some("_")).unwrap();
+	combiner.pass_output("_", "filter", Some("_")).unwrap();
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	scheme
+}
+
+/// ***Inputs***: _, activator, rational.
+///
+/// ***Outputs***: _ (filter), rational.
+fn input_filter_rational(bits_before_point: u32, bits_after_point: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	let word_size = bits_before_point + bits_after_point;
+	combiner.add("filter", input_filter(word_size)).unwrap();
+	combiner.pos().place_last((0, 0, 0));
+
+	let mut input_def = Bind::new("_", "binary", (word_size, 1, 1));
+	input_def.connect_full("filter/data");
+	input_def.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+
+	let input_rational = make_rational_bind("rational", "filter/data", bits_before_point, bits_after_point, bits_after_point, 0);
+
+	let mut output_def = Bind::new("_", "binary", (word_size, 1, 1));
+	output_def.connect_full("filter");
+	output_def.gen_point_sectors("bit", |x, _y, _z| x.to_string()).unwrap();
+
+	let output_rational = make_rational_bind("rational", "filter", bits_before_point, bits_after_point, bits_after_point, 0);
+
+	combiner.pass_input("activator", "filter/activator", Some("logic")).unwrap();
+	combiner.bind_input(input_def).unwrap();
+	combiner.bind_input(input_rational).unwrap();
+
+	combiner.bind_output(output_def).unwrap();
+	combiner.bind_output(output_rational).unwrap();
+
+	let (scheme, _invalid) = combiner.compile().unwrap();
+	scheme
+}
+
 pub fn binary_selector(word_size: u32) -> Scheme {
 	let mut combiner = Combiner::pos_manual();
 
-	combiner.add("selector", binary_selector_compact(word_size)).unwrap();
+	let selector = binary_selector_compact(word_size);
+	let outputs: Vec<String> = selector.outputs().iter().map(|slot| slot.name().clone()).collect();
+
+	combiner.add("selector", selector).unwrap();
 	combiner.pos().place_last((1, 0, 0));
+
+	for output in outputs {
+		if output.eq("_") {
+			continue;
+		}
+
+		let path = format!("selector/{}", output);
+		combiner.pass_output(output, path, None as Option<String>).unwrap();
+	}
 
 	combiner.add_shapes_cube("input", (word_size, 1, 1), OR, Facing::PosY.to_rot()).unwrap();
 	combiner.pass_input("_", "input", Some("binary")).unwrap();
