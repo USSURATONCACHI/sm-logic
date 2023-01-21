@@ -1,8 +1,9 @@
 use json::{JsonValue, object};
 use crate::shape::Shape;
+use crate::shape::vanilla::{BlockBody, BlockType};
 use crate::slot::{Slot, SlotSector};
-use crate::util;
-use crate::util::Bounds;
+use crate::util::{Bounds};
+use crate::util::palette::{input_color, output_color};
 use crate::util::split_first_token;
 use crate::util::Rot;
 use crate::util::Point;
@@ -43,6 +44,15 @@ impl Scheme {
 		};
 		scheme.set_bounds();
 		scheme
+	}
+
+	pub fn empty() -> Self {
+		Scheme {
+			shapes: vec![],
+			inputs: vec![],
+			outputs: vec![],
+			bounds: (0, 0, 0).into(),
+		}
 	}
 
 	/// Rotates whole Scheme / rotates every [`Shape`] of it.
@@ -116,15 +126,37 @@ impl Scheme {
 		self.bounds.clone()
 	}
 
+	/// Sets color of every shape to a given color.
+	/// Basically just fills everything with color.
+	pub fn full_paint<S: Into<String>>(&mut self, color: S) {
+		let color = color.into();
+
+		for (_, _, shape) in &mut self.shapes {
+			shape.set_color(&color);
+		}
+	}
+
+	/// Only paints shapes with default color. If a shape was painted
+	/// before, its color won't change.
+	pub fn soft_paint<S: Into<String>>(&mut self, color: S) {
+		let color = color.into();
+
+		for (_, _, shape) in &mut self.shapes {
+			if shape.get_color().is_none() {
+				shape.set_color(&color);
+			}
+		}
+	}
+
 	/// Shifts, rotates and offsets controller ids, then returns raw data:
 	///
-	/// shapes, inputs, outputs
+	/// (shapes, inputs, outputs)
 	pub fn disassemble(mut self, start_shape: usize, pos: Point, rot: Rot) -> (Vec<(Point, Rot, Shape)>, Vec<Slot>, Vec<Slot>) {
 		let (start, _) = self.calculate_bounds();
 
 		for (shape_pos, shape_rot, shape) in &mut self.shapes {
 			*shape_rot = rot.apply_to_rot(shape_rot.clone());
-			*shape_pos = pos - start + rot.apply(shape_pos.clone());
+			*shape_pos = pos + rot.apply(*shape_pos - start);
 
 			for connection in shape.connections_mut() {
 				*connection += start_shape;
@@ -135,23 +167,54 @@ impl Scheme {
 	}
 
 	/// Converts [`Scheme`] to JSON blueprint.
-	pub fn to_json(mut self) -> JsonValue {
+	pub fn to_json(self) -> JsonValue {
+		self.to_json_custom_colors(input_color, output_color)
+	}
+
+	/// Converts [`Scheme`] to JSON blueprint.
+	pub fn to_json_custom_colors<P1, P2>(mut self, inputs_palette: P1, outputs_palette: P2) -> JsonValue
+		where P1: Fn(u32, Point) -> String,
+				P2: Fn(u32, Point) -> String,
+	{
 		let mut array: Vec<JsonValue> = Vec::new();
 
+		// Slot
 		for (i, bind) in self.inputs.into_iter().enumerate() {
-			for vec in bind.shape_map().as_raw() {
-				for id in vec {
-					let (_, _, shape) = &mut self.shapes[*id];
-					shape.set_color(util::get_input_color(i));
+			let map_size: (i32, i32, i32) = bind.shape_map().bounds().cast().tuple();
+
+			// Point of slot
+			for x in 0..map_size.0 {
+				for y in 0..map_size.1 {
+					for z in 0..map_size.2 {
+						// All the connections of the point
+						for vec in bind.shape_map().get((x as usize, y as usize, z as usize)) {
+							// Connection of the point
+							for id in vec {
+								let (_, _, shape) = &mut self.shapes[*id];
+								shape.set_color(inputs_palette(i as u32, (x, y, z).into()));
+							}
+						}
+					}
 				}
 			}
 		}
 
 		for (i, bind) in self.outputs.into_iter().enumerate() {
-			for vec in bind.shape_map().as_raw() {
-				for id in vec {
-					let (_, _, shape) = &mut self.shapes[*id];
-					shape.set_color(util::get_output_color(i));
+			let map_size: (i32, i32, i32) = bind.shape_map().bounds().cast().tuple();
+
+			// Point of slot
+			for x in 0..map_size.0 {
+				for y in 0..map_size.1 {
+					for z in 0..map_size.2 {
+						// All the connections of the point
+						for vec in bind.shape_map().get((x as usize, y as usize, z as usize)) {
+							// Connection of the point
+							for id in vec {
+								let (_, _, shape) = &mut self.shapes[*id];
+								shape.set_color(outputs_palette(i as u32, (x, y, z).into()));
+							}
+						}
+					}
 				}
 			}
 		}
@@ -171,11 +234,171 @@ impl Scheme {
 		obj["bodies"][0]["childs"] = array;
 		obj
 	}
+
+	pub fn filter_shapes<F>(&mut self, filter: F)
+		where F: Fn(&Point, &Rot, &Shape) -> bool
+	{
+		let mut passed_shapes: Vec<bool> = vec![];
+
+		for (pos, rot, shape) in &self.shapes {
+			passed_shapes.push(filter(pos, rot, shape))
+		}
+
+		for i in (0..passed_shapes.len()).rev() {
+			if !passed_shapes[i] {
+				self.no_bounds_remove_shape(i);
+			}
+		}
+
+		self.set_bounds();
+	}
+
+	pub fn remove_shape(&mut self, id: usize) {
+		self.no_bounds_remove_shape(id);
+		self.set_bounds()
+	}
+
+	pub fn no_bounds_remove_shape(&mut self, id: usize) {
+		if id >= self.shapes_count() {
+			return;
+		}
+
+		let _ = self.shapes.remove(id);
+		self.delete_connections_to(id, -1);
+	}
+
+	pub fn replace_shape(&mut self, id: usize, with: BlockType) {
+		if id >= self.shapes_count() {
+			return;
+		}
+
+		self.delete_connections_to(id, 0);
+
+		let (_, _, shape) = self.shapes.get_mut(id).unwrap();
+
+		let mut new_shape = BlockBody::new(with, shape.bounds());
+
+		if shape.is_forcibly_used() {
+			new_shape.set_forcibly_used();
+		}
+
+		match shape.get_color() {
+			None => {},
+			Some(color) => new_shape.set_color(color),
+		}
+
+		*shape = new_shape;
+	}
+
+	fn delete_connections_to(&mut self, id: usize, id_offset: isize) {
+		for (_, _, shape) in self.shapes.iter_mut() {
+			let mut conns_count = shape.connections().len();
+			let mut i = 0;
+
+			while i < conns_count {
+				let connection = shape.connections()[i];
+				if connection == id {
+					shape.connections_mut().remove(i);
+					conns_count -= 1;
+				} else if connection > id {
+					shape.connections_mut()[i] = (shape.connections_mut()[i] as isize + id_offset) as usize;
+					i += 1;
+				} else {
+					i += 1;
+				}
+			}
+		}
+
+		for input in &mut self.inputs {
+			input.shape_was_removed(id, id_offset);
+		}
+
+		for output in &mut self.outputs {
+			output.shape_was_removed(id, id_offset);
+		}
+	}
+
+	pub fn remove_unused(&mut self) {
+		let is_used = self.get_used_shapes();
+
+		// Then all unused shapes get deleted
+		for i in (0..is_used.len()).rev() {
+			if is_used[i] == false {
+				self.no_bounds_remove_shape(i);
+			}
+		}
+
+		// Check bounds, those might have been updated
+		self.set_bounds();
+	}
+
+	pub fn replace_unused_with(&mut self, block: BlockType) {
+		let is_used = self.get_used_shapes();
+
+		for i in (0..is_used.len()).rev() {
+			if is_used[i] == false {
+				self.replace_shape(i, block);
+			}
+		}
+	}
+
+	fn get_used_shapes(&self) -> Vec<bool> {
+		// used = connected to output
+		let mut is_used: Vec<bool> = self.shapes.iter().map(
+			|(_, _, shape)| shape.is_forcibly_used()
+		).collect();
+
+		// in the first place, all shapes connected to output are used
+		for slot in self.outputs.iter() {
+			for point in slot.shape_map().as_raw() {
+				for connection in point {
+					if *connection < is_used.len() {
+						is_used[*connection] = true;
+					}
+				}
+			}
+		}
+
+		// Then "usefulness" spreads to other shapes in reverse iteratively
+		let mut new_used = 0;
+		loop {
+			for (id, (_, _, shape)) in self.shapes.iter().enumerate() {
+				if let Some(false) = is_used.get(id) {
+					for connection in shape.connections() {
+						// If the shape is connected to used shape, "usefulness" spreads
+						if let Some(true) = is_used.get(*connection) {
+							is_used[id] = true;
+							new_used = 1;
+						}
+					}
+				}
+			}
+
+			if new_used == 0 {
+				break;
+			}
+			new_used = 0;
+		}
+
+		is_used
+	}
+
+	pub fn set_forcibly_used(&mut self) {
+		for (_, _, shape) in &mut self.shapes {
+			shape.set_forcibly_used();
+		}
+	}
+
+	pub fn unset_forcibly_used(&mut self) {
+		for (_, _, shape) in &mut self.shapes {
+			shape.unset_forcibly_used();
+		}
+	}
 }
 
 impl Scheme {
 	// start, size
-	fn calculate_bounds(&self) -> (Point, Bounds) {
+	pub fn calculate_bounds(&self) -> (Point, Bounds) {
 		if self.shapes.len() == 0 {
 			return ((0, 0, 0).into(), (0, 0, 0).into());
 		}
@@ -185,23 +408,23 @@ impl Scheme {
 
 		for (pos, rot, shape) in self.shapes.iter() {
 			let start = pos.clone();
+			let rot: &Rot = rot;
 
 			// Shapes are being rotated around BLOCK at (0, 0, 0) position.
 			// Not around corner of the block. And so, this "*2-1" is needed to
 			// rotate bounds around center of the first block.
-			let bounds = shape.bounds().cast::<i32>() * 2 - 1;
-			let bounds = (rot.apply(bounds) + 1) / 2;
-			let end = pos.clone() + bounds;
+			let bounds_end = start + (rot.apply(shape.bounds().cast::<i32>() * 2 - 1) + 1) / 2;
+			let bounds_start = start + (rot.apply((-1, -1, -1).into()) + 1) / 2;
 
 			min = fold_coords(
 				min,
-				[start, end],
+				[start, bounds_start, bounds_end],
 				|a, b| if a < b { a } else { b }
 			);
 
 			max = fold_coords(
 				max,
-				[start, end],
+				[start, bounds_start, bounds_end],
 				|a, b| if a > b { a } else { b }
 			);
 		}

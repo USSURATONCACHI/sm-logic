@@ -169,6 +169,10 @@ impl Slot {
 		&self.shape_map
 	}
 
+	pub fn shape_map_mut(&mut self) -> &mut Map3D<Vec<usize>> {
+		&mut self.shape_map
+	}
+
 	pub fn sectors(&self) -> &HashMap<String, SlotSector> {
 		&self.sectors
 	}
@@ -243,5 +247,24 @@ impl Slot {
 
 		self.sectors_mut().insert(name, sector);
 		Ok(())
+	}
+
+	pub fn shape_was_removed(&mut self, id: usize, id_offset: isize) {
+		for point in self.shape_map_mut().as_raw_mut() {
+			let mut len = point.len();
+			let mut i = 0;
+
+			while i < len {
+				if point[i] == id {
+					point.remove(i);
+					len -= 1;
+				} else if point[i] > id {
+					point[i] = (point[i] as isize + id_offset) as usize;
+					i += 1;
+				} else {
+					i += 1;
+				}
+			}
+		}
 	}
 }

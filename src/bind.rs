@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use crate::combiner::SlotSide;
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::scheme;
 use crate::slot::{Slot, SlotSector};
@@ -135,10 +134,10 @@ impl Bind {
 		let bounds = bounds.into();
 
 		let start = corner;
-		let end: Point = start + bounds.cast() - Point::new_ng(1_i32, 1, 1);
+		let end: Point = start + bounds.cast();
 
 		if !is_point_in_bounds(start, self.bounds()) ||
-			!is_point_in_bounds(end, self.bounds()) {
+			!is_point_in_bounds(end, self.bounds() + Bounds::new_ng(1_u32, 1, 1)) {
 			return Err(
 				SectorError::SectorIsOutOfSlotBounds {
 					sector_name: name,
@@ -151,6 +150,48 @@ impl Bind {
 
 		self.sectors.push((name, corner, bounds, kind.into()));
 		Ok(())
+	}
+
+	/// Generates a sector for each point of slot with given names.
+	///
+	/// # Example
+	/// ```
+	/// # use crate::sm_logic::bind::Bind;
+	/// # let mut bind = Bind::new("slot name", "slot kind", (10, 10, 1));
+	/// bind.gen_point_sectors("logic", |x, y, z| format!("{}_{}", x, y)).unwrap();
+	/// ```
+	pub fn gen_point_sectors<S1, S2, F>(&mut self, kind: S1, names: F) -> Result<(), Vec<SectorError>>
+		where S1: Into<String>,
+			  S2: Into<String>,
+			  F: Fn(u32, u32, u32) -> S2,
+	{
+		let (size_x, size_y, size_z) = self.bounds().tuple();
+		let kind = kind.into();
+		let mut errors: Vec<SectorError> = vec![];
+
+		for x in 0..size_x {
+			for y in 0..size_y {
+				for z in 0..size_z {
+					let res = self.add_sector(
+						names(x, y, z),
+						(x as i32, y as i32, z as i32),
+						(1, 1, 1),
+						kind.clone()
+					);
+
+					match res {
+						Ok(()) => {}
+						Err(e) => errors.push(e),
+					}
+				}
+			}
+		}
+
+		if errors.len() == 0 {
+			Ok(())
+		} else {
+			Err(errors)
+		}
 	}
 }
 
@@ -320,7 +361,7 @@ impl Bind {
 
 impl Bind {
 	// 										name, start shape, slots
-	pub fn compile(self, schemes: &HashMap<String, (usize, Vec<Slot>)>, side: SlotSide)
+	pub fn compile(self, schemes: &HashMap<String, (usize, Vec<Slot>)>)
 		-> (Slot, Vec<InvalidConn>)
 	{
 		let mut map: Map3D<Vec<usize>> = Map3D::filled(self.bounds().cast().tuple(), vec![]);
@@ -338,19 +379,8 @@ impl Bind {
 				};
 
 			// Point-to-point
-			let p2p_conns: Vec<(Point, Point)> = match side {
-				SlotSide::Input => sector.conn
-					.connect(sector.sector_size, slot_sector.bounds)
-					.into_iter()
-					.map(|(from, to)| (from, to))
-					.collect(),
-
-				SlotSide::Output => sector.conn
-					.connect(slot_sector.bounds, sector.sector_size)
-					.into_iter()
-					.map(|(from, to)| (to, from))
-					.collect(),
-			};
+			let p2p_conns: Vec<(Point, Point)> = sector.conn
+				.connect(sector.sector_size, slot_sector.bounds);
 
 			for (from_this, to_slot) in p2p_conns {
 				if !is_point_in_bounds(from_this, sector.sector_size) ||
@@ -402,7 +432,7 @@ fn compile_get_slot<'a>(sector: &BasicBind, schemes: &'a HashMap<String, (usize,
 		Some(slot_sector) => slot_sector,
 	};
 
-	//println!("Target: '{}', Scheme: '{}', Slot: '{}', Sector: '{}'", target, target_scheme, slot_name, slot_sector);
+	// println!("\t\tScheme: '{}', Slot: '{}', Sector: '{}'", target_scheme, slot_name, slot_sector);
 
 	let (start_shape, slots) = match schemes.get(&target_scheme) {
 		None => {

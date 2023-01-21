@@ -5,6 +5,7 @@ mod vec3;
 mod map3d;
 mod rot;
 mod mat3;
+pub mod palette;
 
 pub use vec3::Vec3;
 pub use map3d::Map3D;
@@ -15,30 +16,7 @@ pub type Bounds = Vec3<u32>;
 pub type Point = Vec3<i32>;
 
 pub const TICKS_PER_SECOND: u32 = 40;
-
-/// Temporary list of color of inputs.
-pub const INPUTS_PALETTE: [&str; 4] = [
-	"0A3EE2",
-	"D02525",
-	"7514ED",
-	"CF11D2",
-];
-
-/// Temporary list of color of outputs.
-pub const OUTPUTS_PALETTE: [&str; 4] = [
-	"19E753",
-	"A0EA00",
-	"68FF88",
-	"CBF66F",
-];
-
-pub fn get_input_color(input_id: usize) -> String {
-	INPUTS_PALETTE[input_id % INPUTS_PALETTE.len()].to_string()
-}
-
-pub fn get_output_color(input_id: usize) -> String {
-	OUTPUTS_PALETTE[input_id % OUTPUTS_PALETTE.len()].to_string()
-}
+pub const MAX_CONNECTIONS: u32 = 255;
 
 /// Returns true if each coordinate lies in the `0..bound` range
 pub fn is_point_in_bounds(point: Point, bounds: Bounds) -> bool {

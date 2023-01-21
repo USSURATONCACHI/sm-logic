@@ -58,6 +58,8 @@ pub struct Shape {
 	base: Box<dyn ShapeBase>,
 	out_conns: Vec<usize>,
 	color: Option<String>,
+
+	forcibly_used: bool,
 }
 
 impl Shape {
@@ -66,6 +68,7 @@ impl Shape {
 			base,
 			out_conns: Vec::new(),
 			color: None,
+			forcibly_used: false,
 		}
 	}
 
@@ -100,6 +103,19 @@ impl Shape {
 		self.color = Some(color.into());
 	}
 
+	/// Returns the color of the shape.
+	/// `None` means default color,
+	/// `Some(color)` means the actual color.
+	pub fn get_color(&self) -> &Option<String> {
+		&self.color
+	}
+
+
+	/// Immutable getter.
+	pub fn connections(&self) -> &Vec<usize> {
+		&self.out_conns
+	}
+
 	/// Mutable getter.
 	pub fn connections_mut(&mut self) -> &mut Vec<usize> {
 		&mut self.out_conns
@@ -130,6 +146,18 @@ impl Shape {
 
 		self.base.build(data)
 	}
+
+	pub fn is_forcibly_used(&self) -> bool {
+		self.forcibly_used
+	}
+
+	pub fn set_forcibly_used(&mut self) {
+		self.forcibly_used = true;
+	}
+
+	pub fn unset_forcibly_used(&mut self) {
+		self.forcibly_used = false;
+	}
 }
 
 impl Into<Scheme> for Shape {
@@ -145,7 +173,7 @@ impl Into<Scheme> for Shape {
 		);
 
 		let input = if self.has_input() { vec![slot.clone()] }  else { vec![] };
-		let output = if self.has_input() { vec![slot.clone()] }  else { vec![] };
+		let output = if self.has_output() { vec![slot] }  else { vec![] };
 
 		Scheme::create(
 			vec![(Point::new_ng(0, 0, 0), Rot::new(0, 0, 0), self)],

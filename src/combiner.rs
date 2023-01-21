@@ -4,11 +4,12 @@ use crate::bind::{Bind, InvalidConn};
 use crate::combiner::Error::{InvalidName, NameWasAlreadyTaken};
 use crate::connection::{ConnDim, Connection, ConnStraight};
 use crate::positioner::{ManualPos, Positioner};
+use crate::presets::shapes_cube;
 use crate::scheme;
 use crate::scheme::Scheme;
 use crate::shape::Shape;
 use crate::slot::{Slot, SlotSector};
-use crate::util::{Bounds, is_point_in_bounds, Map3D, Point, Rot, split_first_token};
+use crate::util::{Bounds, is_point_in_bounds, MAX_CONNECTIONS, Point, Rot, split_first_token};
 
 /// Container for all invalid actions performed on the Combiner.
 #[derive(Debug, Clone)]
@@ -48,6 +49,20 @@ pub enum Error {
 	PassHasInvalidTarget {
 		pass_name: String,
 		pass_side: SlotSide,
+		tip: String,
+	},
+
+	NoSuchScheme {
+		name: String,
+	}
+}
+
+#[derive(Debug, Clone)]
+pub enum CompileError<P> {
+	PositionerError(P),
+	ConnectionsOverflow {
+		affected_inputs: Vec<String>,
+		affected_outputs: Vec<String>,
 		tip: String,
 	},
 }
@@ -274,11 +289,16 @@ pub struct ConnCase {
 #[derive(Debug, Clone)]
 pub struct Combiner<P: Positioner> {
 	schemes: HashMap<String, Scheme>,
+	last_scheme: Option<String>,
+
 	connections: Vec<ConnCase>,
 	positioner: P,
 
 	inputs: Vec<Bind>,
 	outputs: Vec<Bind>,
+
+	conns_overflow_allowed: bool,
+	debug_name: Option<String>,
 }
 
 impl Combiner<ManualPos> {
@@ -293,11 +313,18 @@ impl<P: Positioner> Combiner<P> {
 	pub fn new(positioner: P) -> Self {
 		Combiner {
 			schemes: HashMap::new(),
+			last_scheme: None,
 			connections: vec![],
 			positioner,
 			inputs: vec![],
 			outputs: vec![],
+			conns_overflow_allowed: false,
+			debug_name: None,
 		}
+	}
+
+	pub fn set_debug_name<S: Into<String>>(&mut self, name: S) {
+		self.debug_name = Some(name.into());
 	}
 
 	/// Returns mutable reference to positioner
@@ -313,6 +340,56 @@ impl<P: Positioner> Combiner<P> {
 	/// ```
 	pub fn pos(&mut self) -> &mut P {
 		&mut self.positioner
+	}
+
+	pub fn last_scheme(&self) -> Option<&Scheme> {
+		match &self.last_scheme {
+			None => None,
+			Some(name) => self.schemes.get(name),
+		}
+	}
+
+	pub fn last_scheme_mut(&mut self) -> Option<&mut Scheme> {
+		match &self.last_scheme {
+			None => None,
+			Some(name) => self.schemes.get_mut(name),
+		}
+	}
+
+	pub fn allow_conns_overflow(&mut self) {
+		self.conns_overflow_allowed = true;
+	}
+}
+
+impl<P: Positioner> Combiner<P> {
+	pub fn set_forcibly_used<N>(&mut self, name: N) -> Result<(), Error>
+		where N: Into<String>
+	{
+		let name = name.into();
+
+		match self.schemes.get_mut(&name) {
+			Some(scheme) => {
+				scheme.set_forcibly_used();
+				Ok(())
+			}
+
+			None => Err(Error::NoSuchScheme { name })
+		}
+	}
+
+	pub fn unset_forcibly_used<N>(&mut self, name: N) -> Result<(), Error>
+		where N: Into<String>
+	{
+		let name = name.into();
+
+		match self.schemes.get_mut(&name) {
+			Some(scheme) => {
+				scheme.unset_forcibly_used();
+				Ok(())
+			}
+
+			None => Err(Error::NoSuchScheme { name })
+		}
 	}
 }
 
@@ -337,21 +414,57 @@ impl<P: Positioner> Combiner<P> {
 
 		if name.contains("/") {
 			return Err(InvalidName {
-				tip: "Scheme name cannot contain '/' (slash) symbol".to_string(),
+				tip: match &self.debug_name {
+					None => "Scheme name cannot contain '/' (slash) symbol".to_string(),
+					Some(name) => format!("Scheme name cannot contain '/' (slash) symbol ('{}')", name),
+				},
 				invalid_name: name,
 			});
 		}
 
 		if self.schemes.get(&name).is_none() {
 			self.schemes.insert(name.clone(), scheme.into());
+			self.last_scheme = Some(name.clone());
 			self.pos().set_last_scheme(name);
 			Ok(())
 		} else {
 			Err(NameWasAlreadyTaken {
-				tip: "Scheme with such name was already added".to_string(),
+				tip: match &self.debug_name {
+					None => "Scheme with such name was already added".to_string(),
+					Some(name) => format!("Scheme with such name was already added to '{}'", name),
+				},
 				taken_name: name,
 			})
 		}
+	}
+
+	pub fn add_pass_all<N, S, I, O>(&mut self, name: N, scheme: S, inputs_names: I, outputs_names: O) -> Result<(), Error>
+		where N: Into<String>,
+			  S: Into<Scheme>,
+				I: Fn(&String) -> String,
+				O: Fn(&String) -> String,
+	{
+		let name = name.into();
+		let scheme = scheme.into();
+
+		// bind name, target name
+		let inputs: Vec<(String, String)> = scheme.inputs().iter()
+			.map(|slot| (inputs_names(slot.name()), slot.name().clone()) ).collect();
+
+		let outputs: Vec<(String, String)> = scheme.outputs().iter()
+			.map(|slot| (outputs_names(slot.name()), slot.name().clone()) ).collect();
+
+		self.add(&name, scheme)?;
+
+		for (bind_name, target_name) in inputs {
+			self.pass_input(bind_name, format!("{}/{}", &name, target_name), None as Option<String>)?;
+		}
+
+		for (bind_name, target_name) in outputs {
+			self.pass_output(bind_name, format!("{}/{}", &name, target_name), None as Option<String>)?;
+		}
+
+		Ok(())
 	}
 
 	/// Adds all the (name, scheme) pairs passed to the combiner.
@@ -425,6 +538,103 @@ impl<P: Positioner> Combiner<P> {
 			Ok(())
 		}
 	}
+
+
+	pub fn line<N, S>(&mut self, name: N, shape: S, length: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _line(shape, length)) 			}
+
+	pub fn line_rot<N, S>(&mut self, name: N, shape: S, length: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _line_rot(shape, length)) 		}
+
+	pub fn line_mul<N, S>(&mut self, names: N, shape: S, length: u32) -> Result<(), Vec<Error>>
+		where N: IntoIterator, <N as IntoIterator>::Item: Into<String>,
+				S: Into<Shape>
+	{ 	self.add_mul(names, _line(shape, length)) 		}
+
+	pub fn line_rot_mul<N, S>(&mut self, names: N, shape: S, length: u32) -> Result<(), Vec<Error>>
+		where S: Into<Shape>, N: IntoIterator, <N as IntoIterator>::Item: Into<String>
+	{ 	self.add_mul(names, _line_rot(shape, length)) 	}
+
+
+	pub fn rect<N, S>(&mut self, name: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _rect(shape, size_x, size_y)) 			}
+
+	pub fn rect_vert<N, S>(&mut self, name: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Error>
+		where S: Into<Shape>, N: Into<String>
+	{ 	self.add(name, _rect_vert(shape, size_x, size_y)) 		}
+
+	pub fn rect_mul<N, S>(&mut self, names: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Vec<Error>>
+		where N: IntoIterator, <N as IntoIterator>::Item: Into<String>,
+			  S: Into<Shape>
+	{ 	self.add_mul(names, _rect(shape, size_x, size_y)) 		}
+
+	pub fn rect_vert_mul<N, S>(&mut self, names: N, shape: S, size_x: u32, size_y: u32) -> Result<(), Vec<Error>>
+		where S: Into<Shape>, N: IntoIterator, <N as IntoIterator>::Item: Into<String>
+	{ 	self.add_mul(names, _rect_vert(shape, size_x, size_y)) 	}
+}
+
+fn _rect<S: Into<Shape>>(shape: S, size_x: u32, size_y: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add_shapes_cube("a", (size_x, size_y, 1), shape, (0, 0, 0)).unwrap();
+
+	let mut slot = Bind::new("_", "_", (size_x, size_y, 1));
+	slot.connect_full("a");
+	slot.gen_point_sectors("_", |x, y, _z| format!("{}_{}", x, y)).unwrap();
+
+	combiner.bind_input(slot.clone()).unwrap();
+	combiner.bind_output(slot).unwrap();
+
+	for x in 0..size_x {
+		for y in 0..size_y {
+			let mut point_slot = Bind::new(format!("{}_{}", x, y), "_", (1, 1, 1));
+			point_slot.connect_full(format!("a/_/{}_{}_0", x, y));
+			combiner.bind_input(point_slot.clone()).unwrap();
+			combiner.bind_output(point_slot.clone()).unwrap();
+		}
+	}
+
+	combiner.pos().place_last((0, 0, 0));
+	let (scheme, _) = combiner.compile().unwrap();
+	scheme
+}
+
+fn _rect_vert<S: Into<Shape>>(shape: S, size_x: u32, size_y: u32) -> Scheme {
+	let mut rect = _rect(shape, size_x, size_y);
+	rect.rotate(Rot::new(1, 0, 1));
+	rect
+}
+
+fn _line<S: Into<Shape>>(shape: S, length: u32) -> Scheme {
+	let mut combiner = Combiner::pos_manual();
+
+	combiner.add_shapes_cube("a", (length, 1, 1), shape, (0, 0, 0)).unwrap();
+
+	let mut slot = Bind::new("_", "_", (length, 1, 1));
+	slot.connect_full("a");
+	slot.gen_point_sectors("_", |x, _y, _z| x.to_string()).unwrap();
+	combiner.bind_input(slot.clone()).unwrap();
+	combiner.bind_output(slot).unwrap();
+
+	for x in 0..length {
+		let mut point_slot = Bind::new(format!("{}", x), "_", (1, 1, 1));
+		point_slot.connect_full(format!("a/_/{}_0_0", x));
+		combiner.bind_input(point_slot.clone()).unwrap();
+		combiner.bind_output(point_slot.clone()).unwrap();
+	}
+
+	combiner.pos().place_last((0, 0, 0));
+	let (scheme, _) = combiner.compile().unwrap();
+	scheme
+}
+
+fn _line_rot<S: Into<Shape>>(shape: S, length: u32) -> Scheme {
+	let mut line = _line(shape, length);
+	line.rotate(Rot::new(0, 0, 1));
+	line
 }
 
 impl<P: Positioner> Combiner<P> {
@@ -628,7 +838,10 @@ impl<P: Positioner> Combiner<P> {
 		if bind.name().contains("/") {
 			return Err(InvalidName {
 				invalid_name: bind.name().clone(),
-				tip: "Bind name cannot contain '/' (slash) symbol".to_string()
+				tip: match &self.debug_name {
+					None => "Bind name cannot contain '/' (slash) symbol".to_string(),
+					Some(name) => format!("Bind name cannot contain '/' (slash) symbol ('{}')", name),
+				}
 			})
 		}
 
@@ -636,7 +849,10 @@ impl<P: Positioner> Combiner<P> {
 			if check.name().eq(bind.name()) {
 				return Err(NameWasAlreadyTaken {
 					taken_name: bind.name().clone(),
-					tip: format!("Input bind with such name was already added"),
+					tip: match &self.debug_name {
+						None => format!("Input bind with such name was already added"),
+						Some(name) => format!("Input bind with such name was already added to '{}'", name),
+					},
 				})
 			}
 		}
@@ -670,7 +886,10 @@ impl<P: Positioner> Combiner<P> {
 		if bind.name().contains("/") {
 			return Err(InvalidName {
 				invalid_name: bind.name().clone(),
-				tip: "Bind name cannot contain '/' (slash) symbol".to_string()
+				tip: match &self.debug_name {
+					None => "Bind name cannot contain '/' (slash) symbol".to_string(),
+					Some(name) => format!("Bind name cannot contain '/' (slash) symbol ('{}')", name),
+				},
 			})
 		}
 
@@ -678,7 +897,10 @@ impl<P: Positioner> Combiner<P> {
 			if check.name().eq(bind.name()) {
 				return Err(NameWasAlreadyTaken {
 					taken_name: bind.name().clone(),
-					tip: format!("Output bind with such name was already added"),
+					tip: match &self.debug_name {
+						None => format!("Output bind with such name was already added"),
+						Some(name) => format!("Output bind with such name was already added to ('{}')", name),
+					},
 				})
 			}
 		}
@@ -751,7 +973,6 @@ impl<P: Positioner> Combiner<P> {
 		self.bind_output(bind)
 	}
 
-
 	fn parse_pass_data(&self, name: String, path: String, new_kind: Option<String>, side: SlotSide) -> Result<Bind, Error> {
 		let (scheme_name, slot_name) = split_first_token(path.clone());
 		let slot_name = match slot_name {
@@ -763,7 +984,10 @@ impl<P: Positioner> Combiner<P> {
 			None => return Err(Error::PassHasInvalidTarget {
 				pass_name: name,
 				pass_side: side,
-				tip: format!("Scheme '{}' was not found.", scheme_name),
+				tip: match &self.debug_name {
+					None => format!("Scheme '{}' was not found.", scheme_name),
+					Some(name) => format!("Scheme '{}' was not found in '{}'.", scheme_name, name),
+				},
 			}),
 
 			Some(scheme) => scheme,
@@ -778,7 +1002,10 @@ impl<P: Positioner> Combiner<P> {
 			None => return Err(Error::PassHasInvalidTarget {
 				pass_name: name,
 				pass_side: side,
-				tip: format!("Slot {}/{} was not found.", scheme_name, slot_name)
+				tip: match &self.debug_name {
+					None => format!("Slot {}/{} was not found (Scheme exists, but not the slot).", scheme_name, slot_name),
+					Some(name) => format!("Slot {}/{} was not found in '{}' (Scheme exists, but not the slot).", scheme_name, slot_name, name),
+				},
 			}),
 
 			Some(values) => values,
@@ -790,7 +1017,18 @@ impl<P: Positioner> Combiner<P> {
 		};
 
 		let mut bind = Bind::new(name, kind, sector.bounds);
+
+		if sector.pos.eq(&Point::new(0, 0, 0)) && sector.bounds == slot.bounds() {
+			for (sec_name, sector) in slot.sectors() {
+				if sec_name.len() == 0 {
+					continue;
+				}
+				bind.add_sector(sec_name.clone(), sector.pos.clone(), sector.bounds.clone(), sector.kind.clone()).unwrap();
+			}
+		}
+
 		bind.connect_full(path);
+
 		Ok(bind)
 	}
 }
@@ -807,44 +1045,17 @@ impl<P: Positioner> Combiner<P> {
 	/// # use crate::sm_logic::combiner::Combiner;
 	/// let mut combiner = Combiner::pos_manual();
 	///
-	/// let res = combiner.create_slot_scheme("inner", "raw_data", (5, 5, 5), GateMode::OR, (0, 0, 0));
+	/// let res = combiner.add_shapes_cube("inner", (5, 5, 5), GateMode::OR, (0, 0, 0));
 	///	assert!(res.is_ok()); // Success
 	///
 	/// let res = combiner.add("inner", GateMode::OR);
 	/// assert!(res.is_err()); // This name is already taken
 	/// ```
-	pub fn create_slot_scheme<N, K, B, S, R>(&mut self, name: N,
-				  slot_kind: K, bounds: B, from_shape: S, shape_rot: R)
+	pub fn add_shapes_cube<N, B, S, R>(&mut self, name: N, bounds: B, from_shape: S, shape_rot: R)
 		-> Result<(), Error>
-		where N: Into<String>, K: Into<String>, B: Into<Bounds>, S: Into<Shape>, R: Into<Rot>
+		where N: Into<String>, B: Into<Bounds>, S: Into<Shape>, R: Into<Rot>
 	{
-		let main_shape = from_shape.into();
-		let shape_rot = shape_rot.into();
-		let mut shapes: Vec<(Point, Rot, Shape)> = vec![];
-
-		let bounds = bounds.into();
-		let bounds_tuple = bounds.tuple();
-		let mut map: Map3D<Vec<usize>> = Map3D::filled(bounds.cast().tuple(), vec![]);
-
-		for x in 0..bounds_tuple.0 {
-			for y in 0..bounds_tuple.1 {
-				for z in 0..bounds_tuple.2 {
-					let pos = Point::new(x as i32, y as i32, z as i32);
-					// TODO: make the function take in account shape_rot while calculating shape bounds.
-					shapes.push((pos * main_shape.bounds().cast(), shape_rot.clone(), main_shape.clone()));
-
-					let id = x + y * bounds_tuple.0 + z * bounds_tuple.0 * bounds_tuple.1;
-					map.get_mut((x as usize, y as usize, z as usize))
-						.unwrap()
-						.push(id as usize);
-				}
-			}
-		}
-
-		let slot = Slot::new("_".to_string(), slot_kind.into(), bounds, map);
-		let scheme = Scheme::create(shapes, vec![slot.clone()], vec![slot]);
-
-		self.add(name, scheme)
+		self.add(name, shapes_cube(bounds, from_shape, shape_rot))
 	}
 }
 
@@ -886,9 +1097,11 @@ impl<P: Positioner> Combiner<P> {
 	/// assert_eq!(invalid_acts.inp_bind_conns.len(), 0);
 	/// assert_eq!(invalid_acts.out_bind_conns.len(), 0);
 	/// ```
-	pub fn compile(self) -> Result<(Scheme, InvalidActs), <P as Positioner>::Error> {
+	pub fn compile(self) -> Result<(Scheme, InvalidActs), CompileError<<P as Positioner>::Error>>
+	{
 		// Placing schemes
-		let schemes = self.positioner.arrange(self.schemes)?;
+		let schemes = self.positioner.arrange(self.schemes)
+			.map_err(|error| CompileError::PositionerError(error))?;
 
 		let mut invalid_acts = InvalidActs::new();
 		let mut inputs_map: HashMap<String, (usize, Vec<Slot>)> = HashMap::new();
@@ -907,7 +1120,7 @@ impl<P: Positioner> Combiner<P> {
 
 		// Compiling input binds
 		let inputs: Vec<Slot> = self.inputs.into_iter()
-			.map(|bind| bind.compile(&inputs_map, SlotSide::Input))
+			.map(|bind| bind.compile(&inputs_map))
 			.map(|(slot, invalid)| {
 				let invalid = invalid.into_iter()
 					.map(|x| (slot.name().clone(), x));
@@ -919,7 +1132,7 @@ impl<P: Positioner> Combiner<P> {
 
 		// Compiling output binds
 		let outputs: Vec<Slot> = self.outputs.into_iter()
-			.map(|bind| bind.compile(&outputs_map, SlotSide::Output))
+			.map(|bind| bind.compile(&outputs_map))
 			.map(|(slot, invalid)| {
 				let invalid = invalid.into_iter()
 					.map(|x| (slot.name().clone(), x));
@@ -944,6 +1157,59 @@ impl<P: Positioner> Combiner<P> {
 			compile_connection(slot_from, slot_to, conn.connection, &mut shapes);
 		}
 
+		if !self.conns_overflow_allowed {
+			// Check if some shape contains more than 255 connections
+			let ovf_shapes: Vec<bool> = shapes.iter()
+				.map(|(_, _, shape)| shape.connections().len() > (MAX_CONNECTIONS as usize))
+				.collect();
+
+			for (i, is_ovf) in ovf_shapes.iter().enumerate() {
+				if *is_ovf {
+					println!("Affected {}: conns {}", i, shapes[i].2.connections().len());
+				}
+			}
+
+			// if at least one shape has connections overflow
+			if ovf_shapes.iter().any(|x| *x) {
+				fn check_affected_slots(ovf_shapes: &Vec<bool>, slots_map: &HashMap<String, (usize, Vec<Slot>)>) -> Vec<String> {
+					let mut affected: Vec<String> = vec![];
+
+					for (scheme_name, (start_shape, scheme_inputs)) in slots_map {
+						'input: for input in scheme_inputs {
+							let input_name = input.name();
+							for point in input.shape_map().as_raw() {
+								for shape in point {
+									if ovf_shapes[*start_shape + *shape] {
+										affected.push(format!("{}/{}", scheme_name, input_name));
+										continue 'input;
+									}
+								}
+							}
+						}
+					}
+
+					affected
+				}
+
+				return Err(CompileError::ConnectionsOverflow {
+					affected_inputs: check_affected_slots(&ovf_shapes, &inputs_map),
+					affected_outputs: check_affected_slots(&ovf_shapes, &outputs_map),
+					tip: {
+						let msg = format!("Some slots were connected with too much other slots. \
+							That resulted in connection overflow. When some shape of the scheme gets \
+							more than {} connections connected to it's input or output it is called \
+							connections overflow. This is bad, because it is too buggy and, probably, \
+							it is not the thing you want. If you want to intentionally allow connections \
+							overflow, use `allow_conns_overflow` method before compilation.", MAX_CONNECTIONS);
+						match &self.debug_name {
+							None => msg,
+							Some(name) => format!("Combiner '{}' compilation: {}", name, msg),
+						}
+					}
+				});
+			}
+		}
+
 		let scheme = Scheme::create(shapes, inputs, outputs);
 		Ok((scheme, invalid_acts))
 	}
@@ -961,7 +1227,7 @@ fn compile_connection(from: (usize, &Slot, &SlotSector),
 	for (start, end) in p2p_conns {
 		if !is_point_in_bounds(start, from.2.bounds) ||
 			!is_point_in_bounds(from_offset + start, from.1.bounds()) ||
-			!is_point_in_bounds(end, from.2.bounds) ||
+			!is_point_in_bounds(end, to.2.bounds) ||
 			!is_point_in_bounds(to_offset + end, to.1.bounds())
 		{
 			continue;
@@ -998,12 +1264,13 @@ fn get_scheme_slot<'a>(path: &String, slots: &'a HashMap<String, (usize, Vec<Slo
 
 	match slots.get(&scheme_name) {
 		None => None,
+
 		Some((start_shape, all_scheme_slots)) => {
-			match scheme::find_slot(slot_name, all_scheme_slots) {
+			match scheme::find_slot(slot_name.clone(), all_scheme_slots) {
 				None => None,
-				Some(slot) =>
-					slot.get_sector(&slot_sector_name)
-						.map(|sector| (*start_shape, slot, sector))
+				Some(slot) => slot.get_sector(&slot_sector_name)
+					.map(|sector| (*start_shape, slot, sector))
+
 			}
 		}
 	}

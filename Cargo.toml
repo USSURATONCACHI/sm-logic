@@ -1,10 +1,19 @@
 [package]
 name = "sm-logic"
-version = "0.6.0"
+version = "0.9.7"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 dyn-clone = "1.0.9"
 json = "0.12.4"
+
+[dependencies.uuid]
+version = "1.2.0"
+features = [
+	"v4",                # Lets you generate random UUIDs
+	"fast-rng",          # Use a faster (but still sufficiently random) RNG
+	"macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
+
+[build-dependencies]
+bmp = "0.5.0"
