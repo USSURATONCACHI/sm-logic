@@ -26,7 +26,7 @@ impl BPManager {
 		&self.folder
 	}
 
-	pub fn save<S>(&self, name: S, blueprint: JsonValue, overwrite_if_exists: bool) -> io::Result<bool>
+	pub fn save<S>(&self, name: S, content: String, overwrite_if_exists: bool) -> io::Result<bool>
 		where S: Into<String>
 	{
 		let name = name.into();
@@ -38,20 +38,20 @@ impl BPManager {
 				}
 				let folder_name = path.file_name().unwrap().to_str().unwrap();
 				println!("Overwriting '{}'", folder_name);
-				self.generate_bp(folder_name.into(), name, blueprint)?;
+				self.generate_bp(folder_name.into(), name, content)?;
 				Ok(true)
 			}
 
 			None => {
-				self.generate_bp(Uuid::new_v4().to_string().into(), name, blueprint)?;
+				self.generate_bp(Uuid::new_v4().to_string().into(), name, content)?;
 				Ok(true)
 			}
 		}
 	}
 
-	fn generate_bp(&self, folder_name: PathBuf, name: String, bp: JsonValue) -> io::Result<()> {
+	fn generate_bp(&self, folder_name: PathBuf, name: String, content: String) -> io::Result<()> {
 		let blueprint_path = self.folder.join(folder_name.clone()).join("blueprint.json");
-		let blueprint = bp.to_string();
+		let blueprint = content.to_string();
 
 		let description_path = self.folder.join(folder_name.clone()).join("description.json");
 		let description = object! {
